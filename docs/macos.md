@@ -140,8 +140,9 @@ Found on the way:
 
 - Build the helper (any system with the .NET 8 SDK): `miku/build-helper.sh` → `miku/bin/osx-x64|osx-arm64/`
   (`moodwave-helper` and `moodwave-clap`).
-- Run from a MIKU checkout on a Mac: link this repository at `<MIKU>/Extensions/MoodChannels` and create the link
-  `miku/web → ../web` (the loader reads `miku/web/`).
+- Run from a MIKU checkout on a Mac: this repository at `<MIKU>/Extensions/MoodWave` (MIKU's submodule, or a link);
+  build the programs (`miku/build-helper.sh`) and fetch the basic model (`python3 tools/fetch-models.py`) once. The
+  loader reads the page from `miku/web/`, a link to `../web` kept in git.
 - Installer: MIKU's `mac/build/build.sh` runs `miku/pack-mac.sh`, which copies `extension.js`, `LICENSE`, `web/`,
   `models/basic/`, `bin/moodwave-helper` and `bin/moodwave-clap` per architecture. From a fresh clone it fetches the
   basic model (`tools/fetch-models.py`, Python 3) and builds both programs (.NET 8 SDK on the Mac); checked on the
