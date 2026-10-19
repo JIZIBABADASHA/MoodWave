@@ -2,7 +2,8 @@
   <!--
     The basic channel models are release assets (models/manifest.json), not committed: MikuFetchModels downloads them
     into models\basic\ when it has none, each checked against its SHA-256 (as tools/fetch-models.py does on the Mac).
-    In MSBuild itself, so a MIKU build needs nothing but the .NET SDK.
+    In MSBuild itself, so a MIKU build needs nothing but the .NET SDK. (An inline task sees .NET Standard 2.0 only: the
+    manifest, which this repository writes, is read with regular expressions.)
   -->
   <UsingTask TaskName="MoodWaveFetchModels" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
     <ParameterGroup>
@@ -14,32 +15,45 @@
       <Using Namespace="System.IO" />
       <Using Namespace="System.Net.Http" />
       <Using Namespace="System.Security.Cryptography" />
-      <Using Namespace="System.Text.Json" />
+      <Using Namespace="System.Text.RegularExpressions" />
       <Code Type="Fragment" Language="cs"><![CDATA[
-        Func<string, string> Sha = p => { using (var s = File.OpenRead(p)) return Convert.ToHexString(SHA256.HashData(s)).ToLowerInvariant(); };
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(ModelsDir, "manifest.json")));
-        var m = doc.RootElement.GetProperty("models").GetProperty(Model);
-        string url = m.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String ? u.GetString() : null;
-        if (url == null) { Log.LogError("models/manifest.json: \"" + Model + "\" has no download address yet"); return false; }
-        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("MoodWave");
-        foreach (var f in m.GetProperty("files").EnumerateArray())
+        Func<string, string> Sha = p =>
         {
-          string rel = f.GetProperty("path").GetString(), want = f.GetProperty("sha256").GetString();
-          long bytes = f.GetProperty("bytes").GetInt64();
-          string dst = Path.Combine(ModelsDir, rel.Replace('/', Path.DirectorySeparatorChar)), part = dst + ".part";
-          if (File.Exists(dst) && new FileInfo(dst).Length == bytes && Sha(dst) == want) continue;
-          Directory.CreateDirectory(Path.GetDirectoryName(dst));
-          using (var r = http.GetAsync(url.TrimEnd('/') + "/" + Path.GetFileName(rel), HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult())
+          using (var sha = SHA256.Create())
+          using (var s = File.OpenRead(p)) return BitConverter.ToString(sha.ComputeHash(s)).Replace("-", "").ToLowerInvariant();
+        };
+        string json = File.ReadAllText(Path.Combine(ModelsDir, "manifest.json"));
+        // the model's entry: from its key to the end of its file list
+        var block = Regex.Match(json, "\"" + Regex.Escape(Model) + "\"\\s*:\\s*\\{(?<head>.*?)\"files\"\\s*:\\s*\\[(?<files>.*?)\\]", RegexOptions.Singleline);
+        if (!block.Success) { Log.LogError("models/manifest.json: no model \"" + Model + "\""); return false; }
+        var u = Regex.Match(block.Groups["head"].Value, "\"url\"\\s*:\\s*\"(?<u>[^\"]+)\"");
+        if (!u.Success) { Log.LogError("models/manifest.json: \"" + Model + "\" has no download address yet"); return false; }
+        string url = u.Groups["u"].Value.TrimEnd('/');
+        var files = Regex.Matches(block.Groups["files"].Value,
+          "\"path\"\\s*:\\s*\"(?<p>[^\"]+)\"\\s*,\\s*\"bytes\"\\s*:\\s*(?<b>\\d+)\\s*,\\s*\"sha256\"\\s*:\\s*\"(?<h>[0-9a-f]{64})\"");
+        if (files.Count == 0) { Log.LogError("models/manifest.json: \"" + Model + "\" lists no files"); return false; }
+        using (var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) })
+        {
+          http.DefaultRequestHeaders.UserAgent.ParseAdd("MoodWave");
+          foreach (Match f in files)
           {
-            if (!r.IsSuccessStatusCode) { Log.LogError(rel + ": HTTP " + (int)r.StatusCode); return false; }
-            using (var input = r.Content.ReadAsStream())
-            using (var output = File.Create(part)) input.CopyTo(output);
+            string rel = f.Groups["p"].Value, want = f.Groups["h"].Value;
+            long bytes = long.Parse(f.Groups["b"].Value);
+            string dst = Path.Combine(ModelsDir, rel.Replace('/', Path.DirectorySeparatorChar)), part = dst + ".part";
+            if (File.Exists(dst) && new FileInfo(dst).Length == bytes && Sha(dst) == want) continue;
+            Directory.CreateDirectory(Path.GetDirectoryName(dst));
+            using (var r = http.GetAsync(url + "/" + Path.GetFileName(rel), HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult())
+            {
+              if (!r.IsSuccessStatusCode) { Log.LogError(rel + ": HTTP " + (int)r.StatusCode); return false; }
+              using (var input = r.Content.ReadAsStreamAsync().GetAwaiter().GetResult())
+              using (var output = File.Create(part)) input.CopyTo(output);
+            }
+            string got = Sha(part);
+            if (new FileInfo(part).Length != bytes || got != want) { File.Delete(part); Log.LogError(rel + ": SHA-256 " + got + ", expected " + want); return false; }
+            if (File.Exists(dst)) File.Delete(dst);
+            File.Move(part, dst);
+            Log.LogMessage(MessageImportance.High, "MoodWave: fetched " + rel);
           }
-          string got = Sha(part);
-          if (new FileInfo(part).Length != bytes || got != want) { File.Delete(part); Log.LogError(rel + ": SHA-256 " + got + ", expected " + want); return false; }
-          File.Move(part, dst, true);
-          Log.LogMessage(MessageImportance.High, "MoodWave: fetched " + rel);
         }
         ]]></Code>
     </Task>
