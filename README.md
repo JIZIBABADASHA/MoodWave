@@ -93,8 +93,12 @@ On Windows the module needs a MIKU whose `MIKU.Extensibility` has those members 
 macOS `extension.js` also runs in an older MIKU, without plays (so radios start from their seeds only) and without
 the Smart Playlist.
 
-- In a MIKU checkout this repository sits at `Extensions\<name>\`; MIKU's build then deploys the module to
-  `ext\moodchannels\`.
+- In a MIKU checkout this repository sits at `Extensions/<name>/`, e.g.
+  `git submodule add https://github.com/cychang-ykc/MoodWave.git Extensions/MoodWave`. MIKU's own builds then build
+  and bundle the module; the model files are fetched from the releases by the first build:
+  - Windows (MIKU's build / publish): needs only the .NET 8 SDK; the module lands in `ext\moodchannels\`.
+  - macOS (`mac/build/build.sh`, on a Mac): runs `miku/pack-mac.sh`, which needs the .NET 8 SDK (it builds
+    `moodwave-helper` and `moodwave-clap` for arm64 and x64, about 4 minutes the first time) and `python3`.
 - While this folder is only *linked* there (a junction), MSBuild sees its real path: put the MIKU repository's path in
   `miku.local.props` (not committed) as `<MikuRoot>…\</MikuRoot>`.
 - Deploy without rebuilding MIKU: `dotnet msbuild src/MoodChannels.Extension -t:MikuDeploy -p:Configuration=Release -p:MikuOutDir=<MIKU program folder>\`

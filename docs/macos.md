@@ -142,8 +142,10 @@ Found on the way:
   (`moodwave-helper` and `moodwave-clap`).
 - Run from a MIKU checkout on a Mac: link this repository at `<MIKU>/Extensions/MoodChannels` and create the link
   `miku/web → ../web` (the loader reads `miku/web/`).
-- Installer: MIKU's `mac/build/build.sh` runs `miku/pack-mac.sh`, which copies `extension.js`, `web/`,
-  `models/basic/`, `bin/moodwave-helper` and `bin/moodwave-clap` per architecture.
+- Installer: MIKU's `mac/build/build.sh` runs `miku/pack-mac.sh`, which copies `extension.js`, `LICENSE`, `web/`,
+  `models/basic/`, `bin/moodwave-helper` and `bin/moodwave-clap` per architecture. From a fresh clone it fetches the
+  basic model (`tools/fetch-models.py`, Python 3) and builds both programs (.NET 8 SDK on the Mac); checked on the
+  test Mac (macOS 11.7, SDK 8.0.426): both architectures packed in 207 s, the packed helper starts.
 - Tests (on the Mac, from this repository inside a MIKU checkout): `miku/test/run.sh [--miku <checkout>]
   [--music <folder>]`. Test audio is made with ffmpeg; `--music` adds 8 real songs from that folder (only read),
   without which nothing has a channel and channel start is left out. Each test file also runs alone with Node:
