@@ -22,7 +22,7 @@ fail() { echo "moodwave: $1" >&2; exit 1; }
 
 # the channel models are release assets (models/manifest.json): fetched and checked when models/basic/ has none
 if ! ls "$ROOT"/models/basic/*.trees >/dev/null 2>&1; then
-  node "$ROOT/tools/fetch-models.js" basic || fail "models/basic/ has no model files and they could not be fetched (tools/fetch-models.js)"
+  python3 "$ROOT/tools/fetch-models.py" basic || fail "models/basic/ has no model files and they could not be fetched (tools/fetch-models.py)"
 fi
 for arch in "${ARCHS[@]}"; do
   case "$arch" in

@@ -104,8 +104,9 @@ the Smart Playlist.
 Model files are not committed; they are published as release assets (releases `basic-<version>` and
 `clap-<version>`) and listed with their SHA-256 in `models/manifest.json`.
 
-- Basic model: `node tools/fetch-models.js` downloads and checks it into `models/basic/` (Node 18+). MIKU's packaging
-  (MikuDeploy, `miku/pack-mac.sh`) runs it when `models/basic/` is empty, and bundles the model with the module.
+- Basic model: `python3 tools/fetch-models.py` downloads and checks it into `models/basic/`. MIKU's packaging does it
+  by itself when `models/basic/` is empty (Windows: MikuDeploy, in MSBuild; macOS: `miku/pack-mac.sh`), and bundles
+  the model with the module.
 - Advanced AI's model (285 MB): the module downloads it itself, into its data folder, when the listener turns the
   advanced AI on (checked, resumed after an interruption). `MOODWAVE_MODEL_SOURCE` (a folder) or a model with no
   download address in the manifest makes it copy the file from there or from `models/clap/` of a checkout instead.

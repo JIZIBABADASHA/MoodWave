@@ -26,9 +26,7 @@
     <ProjectReference Include="$(MikuRoot)MIKU.Extensibility\MIKU.Extensibility.csproj" Private="false" />
   </ItemGroup>
   <!-- the channel models are release assets (models/manifest.json): fetched and checked when models\basic\ has none -->
-  <Target Name="MikuFetchModels" Condition="!Exists('$(MSBuildThisFileDirectory)..\..\models\basic\model.json')">
-    <Exec Command="node &quot;$(MSBuildThisFileDirectory)..\..\tools\fetch-models.js&quot; basic" />
-  </Target>
+  <Import Project="..\FetchModels.targets" />
   <Target Name="MikuDeploy" DependsOnTargets="Build;MikuFetchModels">
     <PropertyGroup>
       <_Dst>$(MikuOutDir)ext\$(MikuExtId)\</_Dst>
@@ -43,16 +41,18 @@
       <_StaleBin Include="$(_Dst)*.dll" Exclude="@(_Bin->'$(_Dst)%(Filename)%(Extension)')" />
       <_StaleModels Include="$(_Dst)models\basic\*" Exclude="@(_Models->'$(_Dst)models\basic\%(Filename)%(Extension)')" />
     </ItemGroup>
-    <Error Condition="'@(_Models)' == ''" Text="models\basic\ is empty: node tools\fetch-models.js (the files listed in models\manifest.json)" />
+    <Error Condition="'@(_Models)' == ''" Text="models\basic\ is empty: python3 tools/fetch-models.py (the files listed in models\manifest.json)" />
     <Delete Files="@(_StaleBin);@(_StaleModels)" />
     <RemoveDir Directories="$(_Dst)runtimes" Condition="!Exists('$(TargetDir)runtimes')" />
     <Copy SourceFiles="@(_Bin)" DestinationFolder="$(_Dst)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(_Native)" DestinationFolder="$(_Dst)runtimes\win-x64\native\" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(_Models)" DestinationFolder="$(_Dst)models\basic\" SkipUnchangedFiles="true" />
-    <!-- the manifest: the module downloads the advanced AI's model by it; source.txt names this checkout's models\,
-         where the model is copied from while the manifest has no download address (development) -->
+    <!-- the manifest: the module downloads the advanced AI's model by it; source.txt names this checkout's models\
+         when it has the model (development: copied from there, not downloaded), and is left out otherwise (a build
+         for others: no path of the build machine in it) -->
     <Copy SourceFiles="$(_Repo)models\manifest.json" DestinationFolder="$(_Dst)models\" SkipUnchangedFiles="true" />
-    <WriteLinesToFile File="$(_Dst)models\source.txt" Lines="$([System.IO.Path]::GetFullPath('$(_Repo)models'))" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <WriteLinesToFile Condition="Exists('$(_Repo)models\clap\clap_audio.onnx')" File="$(_Dst)models\source.txt" Lines="$([System.IO.Path]::GetFullPath('$(_Repo)models'))" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <Delete Condition="!Exists('$(_Repo)models\clap\clap_audio.onnx')" Files="$(_Dst)models\source.txt" />
     <Copy SourceFiles="@(_Web)" DestinationFiles="@(_Web->'$(_Dst)web\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
     <!-- the licence and its notices go wherever the module goes -->
     <Copy SourceFiles="$(_Repo)LICENSE" DestinationFolder="$(_Dst)" SkipUnchangedFiles="true" />

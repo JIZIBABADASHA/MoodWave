@@ -1,0 +1,50 @@
+<Project>
+  <!--
+    The basic channel models are release assets (models/manifest.json), not committed: MikuFetchModels downloads them
+    into models\basic\ when it has none, each checked against its SHA-256 (as tools/fetch-models.py does on the Mac).
+    In MSBuild itself, so a MIKU build needs nothing but the .NET SDK.
+  -->
+  <UsingTask TaskName="MoodWaveFetchModels" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <ModelsDir ParameterType="System.String" Required="true" />
+      <Model ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Net.Http" />
+      <Using Namespace="System.Security.Cryptography" />
+      <Using Namespace="System.Text.Json" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        Func<string, string> Sha = p => { using (var s = File.OpenRead(p)) return Convert.ToHexString(SHA256.HashData(s)).ToLowerInvariant(); };
+        using var doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(ModelsDir, "manifest.json")));
+        var m = doc.RootElement.GetProperty("models").GetProperty(Model);
+        string url = m.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String ? u.GetString() : null;
+        if (url == null) { Log.LogError("models/manifest.json: \"" + Model + "\" has no download address yet"); return false; }
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("MoodWave");
+        foreach (var f in m.GetProperty("files").EnumerateArray())
+        {
+          string rel = f.GetProperty("path").GetString(), want = f.GetProperty("sha256").GetString();
+          long bytes = f.GetProperty("bytes").GetInt64();
+          string dst = Path.Combine(ModelsDir, rel.Replace('/', Path.DirectorySeparatorChar)), part = dst + ".part";
+          if (File.Exists(dst) && new FileInfo(dst).Length == bytes && Sha(dst) == want) continue;
+          Directory.CreateDirectory(Path.GetDirectoryName(dst));
+          using (var r = http.GetAsync(url.TrimEnd('/') + "/" + Path.GetFileName(rel), HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult())
+          {
+            if (!r.IsSuccessStatusCode) { Log.LogError(rel + ": HTTP " + (int)r.StatusCode); return false; }
+            using (var input = r.Content.ReadAsStream())
+            using (var output = File.Create(part)) input.CopyTo(output);
+          }
+          string got = Sha(part);
+          if (new FileInfo(part).Length != bytes || got != want) { File.Delete(part); Log.LogError(rel + ": SHA-256 " + got + ", expected " + want); return false; }
+          File.Move(part, dst, true);
+          Log.LogMessage(MessageImportance.High, "MoodWave: fetched " + rel);
+        }
+        ]]></Code>
+    </Task>
+  </UsingTask>
+  <Target Name="MikuFetchModels" Condition="!Exists('$(MSBuildThisFileDirectory)..\models\basic\model.json')">
+    <MoodWaveFetchModels ModelsDir="$(MSBuildThisFileDirectory)..\models" Model="basic" />
+  </Target>
+</Project>

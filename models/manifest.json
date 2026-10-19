@@ -1,5 +1,5 @@
 {
- "comment": "Model files are published as release assets, not committed: each model's files are the assets of the release named in `release`, downloaded from `url` and checked against their sha256. tools/fetch-models.js fetches the basic model for a build (MIKU's packaging runs it when models/basic/ is empty); the advanced AI's model (clap) is downloaded by the module itself when the listener turns it on. A model with `url` null is copied from models/ of a local checkout instead (development).",
+ "comment": "Model files are published as release assets, not committed: each model's files are the assets of the release named in `release`, downloaded from `url` and checked against their sha256. tools/fetch-models.py (and MikuDeploy) fetches the basic model for a build (MIKU's packaging runs it when models/basic/ is empty); the advanced AI's model (clap) is downloaded by the module itself when the listener turns it on. A model with `url` null is copied from models/ of a local checkout instead (development).",
  "models": {
   "basic": {
    "version": "6b6661beec4a",
