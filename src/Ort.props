@@ -1,0 +1,23 @@
+<Project>
+  <!--
+    ONNX Runtime's native part, for the programs that run CLAP (moodwave-clap, moodchannels). MoodChannels.Clap only
+    takes the managed API: a library is built without a runtime identifier, so only the program knows its system.
+    ONNX Runtime 1.19.2: the last release for macOS 11 (1.20-1.23 need macOS 13.3, 1.24 on have no Intel Mac build).
+    Windows uses its DirectML build (GPU through DirectX 12, CPU as fallback); other systems the CPU build.
+  -->
+  <PropertyGroup>
+    <OrtVersion>1.19.2</OrtVersion>
+    <OrtWindows Condition="$(RuntimeIdentifier.StartsWith('win')) or ('$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Windows')))">true</OrtWindows>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(OrtWindows)' == 'true'">
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="$(OrtVersion)" />
+    <!-- DirectML.dll goes with it (the package's build files copy it for C++ projects only): Windows has an older
+         copy of its own, which ONNX Runtime would load otherwise -->
+    <PackageReference Include="Microsoft.AI.DirectML" Version="1.15.1" GeneratePathProperty="true" ExcludeAssets="build" />
+    <None Include="$(PkgMicrosoft_AI_DirectML)\bin\x64-win\DirectML.dll" Link="DirectML.dll" Visible="false"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(OrtWindows)' != 'true'">
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="$(OrtVersion)" />
+  </ItemGroup>
+</Project>

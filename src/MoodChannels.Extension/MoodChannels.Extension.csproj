@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The MIKU extension module (MIKU repo: MIKU.Extensibility/README.md). It is built inside a MIKU checkout, with
+    this repository at Extensions\<name>\ (MikuRoot = the MIKU repository). MIKU's build runs MikuDeploy, which puts
+    everything in <MIKU>\ext\moodchannels\:
+      MoodChannels.Extension.dll, MoodChannels.Service.dll, MoodChannels.Core.dll, Microsoft.Data.Sqlite + SQLitePCLRaw, deps.json
+      runtimes\win-x64\native\e_sqlite3.dll
+      models\basic\               (the channel models, see models/manifest.json)
+      web\                        (the page's scripts and styles)
+  -->
+  <!-- miku.local.props (not committed) may set MikuRoot: needed while this folder is linked into MIKU rather than
+       checked out there, as MSBuild then sees the folder's real path -->
+  <Import Project="$(MSBuildThisFileDirectory)..\..\miku.local.props" Condition="Exists('$(MSBuildThisFileDirectory)..\..\miku.local.props')" />
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>MoodChannels.Extension</RootNamespace>
+    <MikuExtId>moodchannels</MikuExtId>
+    <!-- a class library does not copy its packages to the output by default: any the module uses must travel with it -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <MikuRoot Condition="'$(MikuRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..\..\</MikuRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MoodChannels.Service\MoodChannels.Service.csproj" />
+    <ProjectReference Include="$(MikuRoot)MIKU.Extensibility\MIKU.Extensibility.csproj" Private="false" />
+  </ItemGroup>
+  <!-- the channel models are release assets (models/manifest.json): fetched and checked when models\basic\ has none -->
+  <Target Name="MikuFetchModels" Condition="!Exists('$(MSBuildThisFileDirectory)..\..\models\basic\model.json')">
+    <Exec Command="node &quot;$(MSBuildThisFileDirectory)..\..\tools\fetch-models.js&quot; basic" />
+  </Target>
+  <Target Name="MikuDeploy" DependsOnTargets="Build;MikuFetchModels">
+    <PropertyGroup>
+      <_Dst>$(MikuOutDir)ext\$(MikuExtId)\</_Dst>
+      <_Repo>$(MSBuildThisFileDirectory)..\..\</_Repo>
+    </PropertyGroup>
+    <ItemGroup>
+      <_Bin Include="$(TargetDir)*.dll;$(TargetDir)*.deps.json" Exclude="$(TargetDir)MIKU.Extensibility.dll" />
+      <_Native Include="$(TargetDir)runtimes\win-x64\native\*.dll" />
+      <_Models Include="$(_Repo)models\basic\*" />
+      <_Web Include="$(_Repo)web\**\*" />
+      <!-- what an earlier version deployed and this one does not (a dependency or model files it no longer has) -->
+      <_StaleBin Include="$(_Dst)*.dll" Exclude="@(_Bin->'$(_Dst)%(Filename)%(Extension)')" />
+      <_StaleModels Include="$(_Dst)models\basic\*" Exclude="@(_Models->'$(_Dst)models\basic\%(Filename)%(Extension)')" />
+    </ItemGroup>
+    <Error Condition="'@(_Models)' == ''" Text="models\basic\ is empty: node tools\fetch-models.js (the files listed in models\manifest.json)" />
+    <Delete Files="@(_StaleBin);@(_StaleModels)" />
+    <RemoveDir Directories="$(_Dst)runtimes" Condition="!Exists('$(TargetDir)runtimes')" />
+    <Copy SourceFiles="@(_Bin)" DestinationFolder="$(_Dst)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_Native)" DestinationFolder="$(_Dst)runtimes\win-x64\native\" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_Models)" DestinationFolder="$(_Dst)models\basic\" SkipUnchangedFiles="true" />
+    <!-- the manifest: the module downloads the advanced AI's model by it; source.txt names this checkout's models\,
+         where the model is copied from while the manifest has no download address (development) -->
+    <Copy SourceFiles="$(_Repo)models\manifest.json" DestinationFolder="$(_Dst)models\" SkipUnchangedFiles="true" />
+    <WriteLinesToFile File="$(_Dst)models\source.txt" Lines="$([System.IO.Path]::GetFullPath('$(_Repo)models'))" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <Copy SourceFiles="@(_Web)" DestinationFiles="@(_Web->'$(_Dst)web\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <!-- the licence and its notices go wherever the module goes -->
+    <Copy SourceFiles="$(_Repo)LICENSE" DestinationFolder="$(_Dst)" SkipUnchangedFiles="true" />
+    <!-- the CLAP process (advanced AI) in clap\: a program of its own with ONNX Runtime and DirectML, run on the
+         installed .NET 8 like MIKU (restored apart first: it is published for win-x64) -->
+    <MSBuild Projects="$(_Repo)src\MoodChannels.ClapWorker\MoodChannels.ClapWorker.csproj" Targets="Restore"
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=win-x64;RestoreConfigFile=$(_Repo)nuget.config;_MikuClapRestore=1" />
+    <MSBuild Projects="$(_Repo)src\MoodChannels.ClapWorker\MoodChannels.ClapWorker.csproj" Targets="Publish"
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=win-x64;PublishDir=$(_Dst)clap\" />
+    <ItemGroup>
+      <_ClapExtra Include="$(_Dst)clap\*.pdb;$(_Dst)clap\*.lib" />
+    </ItemGroup>
+    <Delete Files="@(_ClapExtra)" />
+    <Message Importance="high" Text="MoodChannels deployed to $(_Dst)" />
+  </Target>
+</Project>

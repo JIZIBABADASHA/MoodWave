@@ -1,0 +1,5 @@
+* text=auto
+# run on macOS: LF whatever the checkout's settings
+*.sh text eol=lf
+*.webp binary
+*.png binary

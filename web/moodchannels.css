@@ -1,0 +1,408 @@
+/* Mood channels: settings block (MIKU's own colours: the bar matches the library scan bar in the sidebar) */
+.mc-field { display: block; }
+.mc-progress { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.mc-line { font-size: 13px; color: var(--text-2); }
+.mc-line b { color: var(--text); font-weight: 650; }
+.mc-dim { color: var(--text-3); }
+.mc-err { font-size: 13px; color: #e0567a; }
+.mc-bar { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+.mc-bar > i { display: block; height: 100%; background: var(--teal); border-radius: 3px; transition: width .4s var(--ease); }
+.mc-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+/* one MoodWave block: groups (功能 / 分析方式 / 分析進度), the progress card's rows, the folded management */
+.mc-method:empty { display: none; }
+.field.mc-off .lbl, .field.mc-off .ctl { opacity: .45; pointer-events: none; }
+.mc-soon { margin-left: 8px; padding: 1px 7px; border-radius: 8px; background: var(--surface-3); color: var(--text-3); font-size: 11px; font-weight: 600; vertical-align: 1px; }
+.mc-rows { display: grid; grid-template-columns: auto minmax(80px, 1fr) auto; align-items: center; gap: 10px 14px; }
+.mc-row { display: contents; }
+.mc-row-name { font-size: 13px; color: var(--text-2); white-space: nowrap; }
+.mc-row-text { font-size: 12.5px; color: var(--text-3); white-space: nowrap; }
+.mc-row-text b { color: var(--text); font-weight: 650; }
+.mc-state { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; }
+.mc-link { background: none; border: 0; padding: 0; font: inherit; color: var(--teal); cursor: pointer; }
+.mc-link:hover { text-decoration: underline; }
+.mc-row-text .mc-link { margin-left: .3em; }
+.mc-manage { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+.mc-fold { align-self: flex-start; color: var(--text-2); font-size: 13px; }
+.mc-size { align-self: center; }
+
+/* channel page */
+.mc-body { padding: 0 36px 24px; }
+.mc-sect:first-child { margin-top: 4px; }
+.mc-empty { margin: 24px 0; color: var(--text-2); font-size: 14px; }
+.mc-sect { margin: 26px 0 12px; font-size: 13px; font-weight: 700; letter-spacing: .12em; color: var(--text-3); }
+.mc-time { display: grid; grid-template-columns: minmax(320px, 1.3fr) 2fr; gap: 16px; }
+.mc-others { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.mc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 16px; }
+.mc-card {
+  position: relative; display: flex; gap: 14px; align-items: center; padding: 14px; border-radius: 16px; cursor: pointer; overflow: hidden;
+  /* the channel's picture and its darkening are layers inside (.mc-art, .mc-shade), under the content */
+  isolation: isolate; background: hsl(var(--h1) 50% 40%);
+  color: #fff; transition: transform .35s var(--ease-out), box-shadow .35s var(--ease-out);
+}
+/* the picture, a little larger than the card so its blur on hover does not show a lighter edge */
+.mc-art { position: absolute; inset: -4px; z-index: -1; pointer-events: none; background: center / cover no-repeat var(--art);
+  transition: filter .35s var(--ease-out); }
+.mc-card:not(.empty):hover .mc-art { filter: blur(1.6px); }
+.mc-shade { position: absolute; inset: 0; z-index: -1; pointer-events: none; border-radius: inherit;
+  background: linear-gradient(100deg, rgba(0,0,0,.08), rgba(0,0,0,.5)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+.mc-card.mc-mood .mc-shade { background: linear-gradient(180deg, rgba(0,0,0,0) 45%, rgba(0,0,0,.6)); }
+/* hover as the album and artist cards: lifted, the theme's accent ring, a deeper shadow; a little more lift and a
+   deeper shadow as these are bigger. Moved only, not scaled: a scaled card is shown as an enlarged snapshot while it
+   moves (covers and type blurred for a moment) and re-drawn after it, its type shifting a little. Each card keeps a
+   layer of its own (will-change) so nothing is re-drawn or re-snapped around the lift either. */
+.mc-card { will-change: transform; }
+/* the lift is a whole number of screen pixels (--mc-lift, set from the display scaling): 6 px at 125 % is 7.5 pixels,
+   and a layer between two pixels is drawn interpolated (the covers went soft while lifted) */
+.mc-card:hover { transform: translateY(calc(-1 * var(--mc-lift, 6px)));
+  box-shadow: 0 0 0 2px var(--teal), 0 26px 48px -12px rgba(var(--shadow-rgb), calc(.7 * var(--sh))), 0 12px 28px -10px hsl(var(--h1) 60% 40% / .4); }
+.mc-card.empty { cursor: default; opacity: .55; }
+.mc-card.empty:hover { transform: none; box-shadow: none; }
+.mc-card.mc-hero { padding: 20px; gap: 20px; }
+.mc-card.mc-mood { flex-direction: column; align-items: stretch; }
+.mc-mosaic { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; width: 96px; aspect-ratio: 1; flex: none; border-radius: 10px; overflow: hidden;
+  background: rgba(0,0,0,.25); box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+.mc-card.mc-hero .mc-mosaic { width: 180px; }
+.mc-card.mc-mood .mc-mosaic { width: 100%; }
+.mc-mosaic[data-n="1"] { grid-template-columns: 1fr; }
+.mc-mosaic[data-n="1"] .mc-tile { grid-row: span 2; }
+.mc-tile { position: relative; overflow: hidden; background: rgba(var(--ink), .06); }
+.mc-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mc-meta { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.mc-now { font-size: 11px; font-weight: 700; letter-spacing: .14em; color: #fff; opacity: .85; }
+.mc-name { font-size: 18px; font-weight: 700; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.45); }
+.mc-card.mc-hero .mc-name { font-size: 30px; }
+.mc-desc { font-size: 12.5px; color: rgba(255,255,255,.88); text-shadow: 0 1px 4px rgba(0,0,0,.45); }
+.mc-count { font-size: 12px; color: rgba(255,255,255,.75); margin-top: 2px; text-shadow: 0 1px 4px rgba(0,0,0,.45); }
+.mc-play { position: absolute; right: 14px; bottom: 14px; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--teal); color: #fff; opacity: 0; transform: scale(.9); transition: opacity .15s, transform .15s; }
+.mc-play .i { width: 16px; height: 16px; }
+.mc-card:hover .mc-play { opacity: 1; transform: none; }
+.mc-card.mc-hero .mc-play { width: 44px; height: 44px; right: 20px; bottom: 20px; }
+@media (max-width: 980px) { .mc-time { grid-template-columns: 1fr; } }
+
+/* the mark (moodchannels.js logo()): the heart in the theme's pink with a fine line of it, a soft shine; the trace in
+   the text colour, edged with the background colour so it reads across the heart */
+.mc-logo { overflow: visible; --mc-heart: var(--pink); --mc-heart-line: var(--pink-line); --mc-wave: var(--text); --mc-edge: var(--bg); --mc-shine: .26; }
+/* flat (red and black), washi, miku and vinyl: a white trace edged in the heart's colour (a black one looked heavy there); the player
+   bar's and the wheel's marks below keep their own colours */
+:is([data-theme="flat"], [data-theme="washi"], [data-theme="miku"], [data-theme="vinyl"]) .mc-logo { --mc-wave: #fff; --mc-edge: var(--pink); }
+/* vinyl: the heart orange rather than the theme's gold */
+[data-theme="vinyl"] .mc-logo { --mc-heart: #ea761f; --mc-heart-line: rgba(234,118,31,.6); --mc-edge: #ea761f; }
+.mc-logo .mc-heart { fill: var(--mc-heart); stroke: var(--mc-heart-line); stroke-width: 6; stroke-linejoin: round; }
+.mc-logo .mc-shine { fill: #fff; opacity: var(--mc-shine); stroke: none; }
+.mc-logo :is(.mc-edge, .mc-wave, .mc-track, .mc-run) { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.mc-logo .mc-edge { stroke: var(--mc-edge); stroke-width: 24; }
+.mc-logo :is(.mc-wave, .mc-track, .mc-run) { stroke: var(--mc-wave); stroke-width: 14; }
+.mc-logo .mc-track, .mc-logo .mc-run { display: none; }     /* shown while it beats (below) */
+/* on the bar and the wheel (over the channel's picture): a white heart, the trace dark with a white edge */
+:is(.mc-band, .mc-rail) .mc-logo { --mc-heart: #fff; --mc-heart-line: transparent; --mc-wave: rgba(0,0,0,.55); --mc-edge: #fff; --mc-shine: 0; }
+.mc-title { display: inline-flex; align-items: center; gap: 12px; }
+.mc-title-logo { width: 38px; height: 38px; flex: none; }
+
+/* failed tracks (settings) */
+.mc-fails { display: flex; flex-direction: column; margin-top: 10px; max-height: 420px; overflow-y: auto; }
+.mc-fails:empty { display: none; }
+.mc-fail { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-top: 1px solid var(--line); }
+.mc-fail-text { flex: 1; min-width: 0; }
+.mc-fail-name { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-fail-dir { font-size: 12px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+.mc-fail-why { font-size: 12px; color: var(--pink-text); margin-top: 2px; }
+.mc-fail .icon-btn { flex: none; }
+
+/* player bar: the channel band (left of the cover): ▲ channel ▼ */
+.mc-band {
+  --mc-band-icon: 22.5px;                  /* the mark's size, which the arrows centre on (1.25× the first design's 18 px) */
+  /* printed straight on the bar (which carries the channel's picture): no card of its own */
+  position: relative; width: 120px; height: 68px; color: #fff;   /* set to the name's width (fitBand), gliding with the roll */
+  transition: width .42s cubic-bezier(.22,.9,.25,1);
+  display: grid; grid-template-rows: 16px 1fr 16px; justify-items: start; align-items: center;   /* left-aligned: ▲ ♥♪ ▼ in a column, the name beside */
+  grid-template-columns: minmax(0, 1fr) auto;                                  /* then 👍 / 👎 */
+}
+.mc-band > :not(.mc-votes) { grid-column: 1; }
+.mc-band > .mc-votes { grid-column: 2; grid-row: 1 / -1; position: static; transform: none; margin-left: 14px; gap: 6px; }   /* JS VOTE_GAP */
+.mc-band .mc-vote { width: 28px; height: 28px; }
+.mc-band.mc-tight > .mc-votes { display: none; }      /* a narrow window: the bar keeps the title, the wheel has the buttons */
+.mc-band .mc-vote .i { width: 15px; height: 15px; }
+/* the arrows sit centred over the mark: the button is the mark's width plus 6 px each side, pulled 6 px left */
+.mc-band-step { all: unset; cursor: pointer; width: calc(var(--mc-band-icon) + 12px); height: 16px; margin-left: -6px; display: grid; place-items: center; opacity: .7; border-radius: 6px; }
+.mc-band-step:hover { opacity: 1; background: rgba(255,255,255,.16); }
+.mc-band-step .i { width: 16px; height: 16px; transform: rotate(180deg); stroke-width: 2.4; }
+.mc-band-step.down .i { transform: none; }
+.mc-band-name { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; color: #fff; text-decoration: none;
+  font-weight: 700; font-size: 18px; text-shadow: 0 1px 6px rgba(0,0,0,.55); }
+.mc-band-name { width: 100%; justify-content: flex-start; cursor: default; }
+.mc-roll { display: grid; width: 100%; perspective: 260px; }           /* the picker wheel: mark and name roll as one */
+.mc-roll-item { grid-area: 1 / 1; display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: max-content;
+  white-space: nowrap; backface-visibility: hidden; transform-origin: 50% 50%; will-change: transform, opacity; }
+.mc-roll-item > span { overflow: hidden; text-overflow: ellipsis; }
+.mc-band-logo { width: var(--mc-band-icon); height: var(--mc-band-icon); flex: none; filter: drop-shadow(0 1px 3px rgba(0,0,0,.4)); }
+
+/* ── while a channel plays (<html data-ext-source="moodchannels">) ── */
+/* the player bar: the channel's picture across the whole bar, darkened for the controls; light text as on MIKU's dark bars */
+html:root[data-ext-source="moodchannels"]:not(.mc-radio) #bar {
+  --ink: 255, 255, 255; --line: rgba(255,255,255,.10); --line-2: rgba(255,255,255,.18);
+  --text: #fff; --text-hi: #fff; --text-sub: rgba(255,255,255,.78); --text-2: rgba(255,255,255,.7); --text-3: rgba(255,255,255,.55);
+  --surface-2: rgba(255,255,255,.12); --surface-3: rgba(255,255,255,.2);
+  color: var(--text); color-scheme: dark;
+}
+/* the bar's channel background: two layers under its content (blurred, darkened and grained beforehand by
+   tools/gen_backdrops.py; a gradient drawn here over it shows blocks), the newer fading in over the older */
+#bar .mc-barbg { position: absolute; inset: 0; z-index: -2; border-radius: inherit; pointer-events: none;
+  background: center / 100% 100% no-repeat; opacity: 0; transition: opacity .7s ease; }
+#bar .mc-barbg.top { z-index: -1; }
+html:root[data-ext-source="moodchannels"]:not(.mc-radio) #bar .mc-barbg.on { opacity: 1; }
+html:root[data-ext-source="moodchannels"]:not(.mc-radio) #bar .slider .track { background: rgba(255,255,255,.22); }
+html:root[data-ext-source="moodchannels"]:not(.mc-radio) #bar .sig, html:root[data-ext-source="moodchannels"]:not(.mc-radio) #bar .out-btn { background: rgba(255,255,255,.10); color: #fff; }
+
+/* the now-playing page: dark and immersive in every theme, the channel's picture as the backdrop (lightly blurred so it stays recognisable) */
+html:root[data-ext-source="moodchannels"]:not(.mc-radio) #np {
+  --np-base: #05060c; --np-ink: 255, 255, 255; --np-pill-ink: #10121a; --np-dim: .85;
+  --np-veil: none;                     /* the darkening is part of the backdrop (tools/gen_backdrops.py): drawn here it shows blocks */
+  color-scheme: dark;
+}
+/* the backdrop: the channel's picture pre-rendered at 2560×1440, blurred in full precision with a fine grain
+   (tools/gen_backdrops.py; the page's own live blur of an enlarged picture is computed coarsely and shows blocks).
+   Two layers over the page's cover backdrop, the newer fading in over the older; the cover backdrop fades away
+   under them in channel mode and back when another list plays. */
+html:root[data-ext-source="moodchannels"]:not(.mc-radio) #np .np-bg .layer { opacity: 0 !important; }
+#np .mc-npbg { position: absolute; inset: 0; z-index: 0; pointer-events: none; background: center / cover no-repeat;
+  opacity: 0; transition: opacity .9s ease; animation: mc-drift 48s ease-in-out infinite alternate; }
+#np .mc-npbg.top { z-index: 1; }
+html:root[data-ext-source="moodchannels"]:not(.mc-radio) #np .mc-npbg.on { opacity: 1; }
+@keyframes mc-drift { from { transform: scale(1.02) translate(0, 0); } to { transform: scale(1.09) translate(-1.2%, -.8%); } }
+/* closed, the now-playing page is only slid away and hidden: its backdrop stops drifting meanwhile */
+#np:not(.on) .mc-npbg { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { #np .mc-npbg { animation: none; } }
+html:root[data-ext-source="moodchannels"]:not(.mc-radio) #np .np-wrap { padding-left: calc(4vw + 300px); }
+/* without lyrics the cover sits alone: the same room on the right keeps it in the middle of the screen, not of what the rail leaves */
+html:root[data-ext-source="moodchannels"]:not(.mc-radio) #np.nolyrics .np-wrap { padding-right: calc(4vw + 300px); }
+/* the cover keeps its theme frame, but its big soft shadow (80–90 px blur) is drawn by stretching strips, which show as
+   faint vertical lines on the smooth backdrop: a tighter shadow instead */
+html:root[data-ext-source="moodchannels"]:not(.mc-radio) #np .np-cover { box-shadow: 0 12px 28px rgba(0,0,0,.32); }
+html:root[data-ext-source="moodchannels"]:not(.mc-radio)[data-theme="miku"] #np .np-cover { box-shadow: 0 0 0 5px rgba(255,255,255,.85), 0 12px 28px rgba(0,0,0,.32); }
+html:root[data-ext-source="moodchannels"]:not(.mc-radio)[data-theme="night"] #np .np-cover { box-shadow: 0 0 0 1px rgba(160,240,235,.14), 0 12px 28px rgba(0,0,0,.4); }
+html:root[data-ext-source="moodchannels"]:not(.mc-radio)[data-theme="glass"] #np .np-cover { box-shadow: 0 0 0 1px rgba(255,255,255,.2), 0 12px 28px rgba(0,0,0,.32); }
+html:root[data-ext-source="moodchannels"]:not(.mc-radio)[data-theme="neon"] #np .np-cover { box-shadow: 0 0 0 1px rgba(0,240,255,.5), 0 12px 28px rgba(0,0,0,.32); }
+html:root[data-ext-source="moodchannels"]:not(.mc-radio)[data-theme="vinyl"] #np .np-cover { box-shadow: 0 0 0 10px #15110d, 0 0 0 11px rgba(0,0,0,.2), 0 12px 28px rgba(0,0,0,.32); }
+
+/* the channel list on the left of the now-playing page */
+.mc-rail { position: absolute; left: 3vw; top: 50%; transform: translateY(calc(-50% - var(--bar) / 4)); width: 290px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px; color: #fff; }
+/* the header (mark and name) 1.5× the first design's 15 px / 24 px */
+/* centred over the arrows (which are centred in the rail) */
+.mc-rail-head { display: flex; align-items: center; align-self: center; gap: 12px; margin: 0 0 9px; color: #fff; text-decoration: none; font-weight: 700; font-size: 22.5px; letter-spacing: .04em; opacity: .9; }
+.mc-rail-head:hover span { text-decoration: underline; }
+.mc-rail-head > .mc-brand { margin-right: -.04em; }      /* the letter spacing after the last letter: not counted in the centring */
+.mc-rail-logo { width: 36px; height: 36px; flex: none; }
+.mc-rail-step { all: unset; cursor: pointer; align-self: center; width: 64px; height: 22px; display: grid; place-items: center; border-radius: 8px; opacity: .7; }
+.mc-rail-step:hover { opacity: 1; background: rgba(255,255,255,.14); }
+.mc-rail-step .i { width: 20px; height: 20px; transform: rotate(180deg); stroke-width: 2.4; }
+.mc-rail-step.down .i { transform: none; }
+.mc-wheel { position: relative; height: 400px; perspective: 700px; }      /* the channel picker wheel, the channel playing in the middle */
+/* the frame in the middle stays put (its blur is drawn once); only the channels move, by transform and opacity */
+.mc-wheel::before { content: ""; position: absolute; left: -6px; right: -6px; top: 50%; height: 72px; margin-top: -36px; border-radius: 14px;
+  background: rgba(255,255,255,.13); border: 1px solid rgba(255,255,255,.22); backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(0,0,0,.3); }
+.mc-rail-item { all: unset; position: absolute; left: 0; right: 0; top: 50%; height: 60px; margin-top: -30px; box-sizing: border-box;
+  display: flex; align-items: center; gap: 12px; padding: 0 84px 0 8px; cursor: pointer; transform-origin: 0 50%; will-change: transform, opacity;
+  transform: translateY(calc(var(--o) * 50px + clamp(-1, var(--o), 1) * 14px)) rotateX(calc(var(--o) * -17deg)) scale(var(--sc, .8));
+  opacity: calc(1 - var(--a) * .24);
+  transition: transform .42s cubic-bezier(.22,.9,.25,1), opacity .42s ease; }
+.mc-rail-item.jump { transition: none; }
+.mc-rail-item.far { opacity: 0; pointer-events: none; }
+.mc-rail-item:not(.on):hover { opacity: 1; }
+.mc-rail-art { position: relative; overflow: hidden; width: 52px; height: 52px; flex: none; border-radius: 10px; background: center / cover var(--art);
+  box-shadow: 0 2px 8px rgba(0,0,0,.35); transition: box-shadow .3s ease, filter .3s ease; }
+.mc-rail-text b { transition: text-shadow .3s ease; }
+/* hover lights a channel up, the one playing too: its picture brightens with a soft white ring and glow (and comes
+   alive, moodchannels.js), its name glows */
+.mc-rail-item:hover .mc-rail-art { filter: brightness(1.12);
+  box-shadow: 0 0 0 2px rgba(255,255,255,.55), 0 0 22px rgba(255,255,255,.3), 0 2px 8px rgba(0,0,0,.35); }
+.mc-rail-item:hover .mc-rail-text b { text-shadow: 0 0 14px rgba(255,255,255,.6), 0 1px 6px rgba(0,0,0,.5); }
+.mc-rail-text { display: flex; flex-direction: column; min-width: 0; }
+.mc-rail-text b { font-size: 22px; font-weight: 750; text-shadow: 0 1px 6px rgba(0,0,0,.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-rail-text small { font-size: 12.5px; opacity: 0; text-shadow: 0 1px 4px rgba(0,0,0,.5); transition: opacity .3s; }
+.mc-rail-item.on small { opacity: .85; }
+/* 👍 / 👎 on the track playing, right of the middle frame (the channel playing) */
+.mc-votes { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); z-index: 2; display: flex; gap: 6px; }
+.mc-votes[hidden] { display: none; }
+.mc-vote { all: unset; cursor: pointer; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: #fff;
+  background: rgba(255,255,255,.12); box-shadow: inset 0 0 0 1px rgba(255,255,255,.24); transition: background .2s, box-shadow .2s, transform .15s; }
+.mc-vote:hover { background: rgba(255,255,255,.24); }
+.mc-vote:active { transform: scale(.92); }
+.mc-vote:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.mc-vote .i { width: 17px; height: 17px; stroke-width: 1.9; }
+.mc-vote.no .i { transform: rotate(180deg); }
+.mc-vote.yes[aria-pressed="true"] { background: var(--teal); box-shadow: 0 0 0 1px rgba(255,255,255,.35), 0 0 14px color-mix(in srgb, var(--teal) 60%, transparent); }
+.mc-vote.no[aria-pressed="true"] { background: #e0567a; box-shadow: 0 0 0 1px rgba(255,255,255,.35), 0 0 14px rgba(224,86,122,.6); }
+@media (max-width: 1100px) { html:root[data-ext-source="moodchannels"]:not(.mc-radio) #np .np-wrap, html:root[data-ext-source="moodchannels"]:not(.mc-radio) #np.nolyrics .np-wrap { padding-left: 6vw; padding-right: 6vw; } .mc-rail { display: none; } }
+
+/* while a channel plays, the bar's and the wheel's marks beat like a resting heart: the heart pulses lub (strong)
+   dub (light) every 1.5 s (40 BPM), and the trace runs through it at half that pace (a 3 s sweep); the heart is set
+   half a beat early so that one of its two beats in a sweep comes as the spike crosses its centre, the other while
+   the trace is between sweeps */
+.mc-logo .mc-pulse { transform-box: view-box; transform-origin: 100px 102px; }
+html.mc-beating :is(.mc-band-logo, .mc-rail-logo) .mc-pulse { animation: mc-lubdub 1.5s -.72s infinite; }   /* lub (48 %) at 0, 1.5 s … */
+html.mc-beating :is(.mc-band-logo, .mc-rail-logo) .mc-wave { display: none; }
+html.mc-beating :is(.mc-band-logo, .mc-rail-logo) .mc-edge { stroke-opacity: .6; }
+html.mc-beating :is(.mc-band-logo, .mc-rail-logo) .mc-track { display: inline; stroke-opacity: .45; }
+html.mc-beating :is(.mc-band-logo, .mc-rail-logo) .mc-run { display: inline; stroke-dasharray: 26 100; animation: mc-trace 3s linear infinite; }   /* the spike crosses at 1.5 s */
+/* the design's lub-dub (×1.09, ×1.05) a little larger: the mark is only 22–36 px here */
+@keyframes mc-lubdub {
+  0%, 40% { transform: scale(1); }
+  48%     { transform: scale(1.14); }
+  56%     { transform: scale(1); }
+  64%     { transform: scale(1.07); }
+  100%    { transform: scale(1); }
+}
+@keyframes mc-trace { from { stroke-dashoffset: 26; } to { stroke-dashoffset: -100; } }
+@media (prefers-reduced-motion: reduce) {
+  html.mc-beating :is(.mc-band-logo, .mc-rail-logo) :is(.mc-pulse, .mc-run) { animation: none; }
+  html.mc-beating :is(.mc-band-logo, .mc-rail-logo) .mc-wave { display: inline; }
+  html.mc-beating :is(.mc-band-logo, .mc-rail-logo) :is(.mc-track, .mc-run) { display: none; }
+  .mc-rail-item { transition: none; }
+}
+
+.mc-brand { white-space: nowrap; }
+.mc-sect-title { gap: 8px; }
+.mc-sect-logo { width: 1.15em; height: 1.15em; flex: none; }
+.mc-band.pushing { overflow: hidden; }       /* entering / leaving: the content is uncovered or tucked away at the band's left edge */
+
+/* opening the page: the cards fade in from the top left to the bottom right (--d: each card's wait). Opacity only,
+   as MIKU's own grids: moving or scaling the card redraws its pictures every frame (not smooth), and when the card
+   leaves its animation layer its covers snap to the pixel grid (a small jump at the end). */
+/* the card keeps its own transform layer through the fade (will-change: opacity alone would replace that layer for
+   the fade and re-create it after: at fractional positions its covers then snap to the pixel grid, a small shift) */
+.mc-card.mc-pop { animation: mc-pop .42s cubic-bezier(.25,.1,.25,1) both; animation-delay: var(--d, 0ms); will-change: transform, opacity; }
+@keyframes mc-pop { from { opacity: 0; } to { opacity: 1; } }
+
+/* the live picture on hover (the drawing over the still image; elements marked by tools/gen_art.py, --d: phase 0–1) */
+:is(.mc-art, .mc-rail-art) > svg { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity .35s ease; }
+:is(.mc-art, .mc-rail-art) > svg.on { opacity: 1; }
+/* the wheel's channel playing stays alive (moodchannels.js), but only while the now-playing page is open: closed, the
+   page is only slid away and hidden, and a drawing animating there all the time kept the page busy re-drawing it,
+   until the channel page's card pictures came out blank (only their colour) */
+#np:not(.on) .mc-rail-art > svg { display: none; }
+.mc-live * { transform-box: fill-box; transform-origin: center; }
+/* speeds and sizes after Energetic's (the liveliest felt right): the others twice as fast as at first, and moving about as much */
+.mc-live .cl, .mc-live .band { animation: mc-sway 4.5s ease-in-out infinite alternate; animation-delay: calc(var(--d) * -4.5s); }
+.mc-live .glow { animation: mc-breathe 2.25s ease-in-out infinite alternate; }
+.mc-live .rays { transform-box: view-box; transform-origin: 140px 55px; animation: mc-turn 15s linear infinite; }  /* 16 rays: a turn of 22.5° loops */
+.mc-live .tw { animation: mc-twinkle 1.3s ease-in-out infinite; animation-delay: calc(var(--d) * -1.3s); }
+.mc-live .tw2 { animation: mc-glint 1.7s ease-in-out infinite; animation-delay: calc(var(--d) * -1.7s); }
+.mc-live .glow2 { animation: mc-swell 3s ease-in-out infinite alternate; animation-delay: calc(var(--d) * -3s); }          /* Energetic: as it was */
+.mc-live .blot { animation: mc-beatlet 1.4s ease-in-out infinite alternate; animation-delay: calc(var(--d) * -1.4s); }
+.mc-live .drop { animation: mc-hop 1.1s ease-in-out infinite alternate; animation-delay: calc(var(--d) * -1.1s); }
+.mc-live .ray { animation: mc-shimmer 1.75s ease-in-out infinite alternate; animation-delay: calc(var(--d) * -1.75s); }
+.mc-live .mote { animation: mc-rise 2.5s linear infinite; animation-delay: calc(var(--d) * -2.5s); }
+.mc-live .leaf { animation: mc-rock 1.6s ease-in-out infinite alternate; animation-delay: calc(var(--d) * -1.6s); }
+.mc-live .bk { animation: mc-float 3s ease-in-out infinite alternate, mc-flicker 1.5s ease-in-out infinite alternate;
+  animation-delay: calc(var(--d) * -3s), calc(var(--d) * -1.5s); }
+.mc-live .dot { animation: mc-ripple 1.4s ease-in-out infinite; animation-delay: calc((1 - var(--d)) * -1.4s); }   /* Upbeat: as it was, a wave to the right */
+.mc-live .wave { animation: mc-roll 3.5s ease-in-out infinite alternate; animation-delay: calc(var(--d) * -3.5s); }
+.mc-live .fold { animation: mc-sway 2.5s ease-in-out infinite alternate; animation-delay: calc(var(--d) * -2.5s); }
+.mc-live .tile { animation: mc-flash 1.6s ease-in-out infinite; animation-delay: calc(var(--d) * -1.6s); }          /* Dance: as it was */
+.mc-live .surf { animation: mc-bob 1.3s ease-in-out infinite alternate; }
+.mc-live .spray { animation: mc-fly 1.1s ease-out infinite; animation-delay: calc(var(--d) * -1.1s); }
+/* Morning and Evening: their clouds and sun move more (they read too still); Midnight's stars 1.5× faster */
+.mc-live.mc-ch0 .cl, .mc-live.mc-ch2 .band { animation-name: mc-sway-wide; }
+.mc-live.mc-ch0 .glow, .mc-live.mc-ch2 .glow { animation-name: mc-breathe-wide; }
+.mc-live.mc-ch4 .tw { animation-duration: .87s; animation-delay: calc(var(--d) * -.87s); }
+.mc-live.mc-ch4 .tw2 { animation-duration: 1.13s; animation-delay: calc(var(--d) * -1.13s); }
+@keyframes mc-sway-wide { from { transform: translateX(-16px); } to { transform: translateX(20px); } }
+@keyframes mc-breathe-wide { from { transform: scale(.82); opacity: .6; } to { transform: scale(1.22); opacity: 1; } }
+/* fill-opacity where the element has an opacity of its own (so it keeps it), transform otherwise */
+@keyframes mc-sway { from { transform: translateX(-8px); } to { transform: translateX(10px); } }
+@keyframes mc-breathe { from { transform: scale(.92); opacity: .8; } to { transform: scale(1.1); opacity: 1; } }
+@keyframes mc-turn { to { transform: rotate(22.5deg); } }
+@keyframes mc-twinkle { 0%, 100% { fill-opacity: 1; } 50% { fill-opacity: .08; } }
+@keyframes mc-glint { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(2); opacity: .65; } }
+@keyframes mc-swell { from { transform: scale(.94); } to { transform: scale(1.14); } }
+@keyframes mc-beatlet { from { transform: scale(.97); } to { transform: scale(1.07); } }
+@keyframes mc-hop { from { transform: translateY(1px); } to { transform: translateY(-5px); } }
+@keyframes mc-shimmer { from { fill-opacity: 1; } to { fill-opacity: .2; } }
+@keyframes mc-rise { 0% { transform: translateY(5px); fill-opacity: 0; } 20% { fill-opacity: 1; } 100% { transform: translateY(-26px); fill-opacity: 0; } }
+@keyframes mc-rock { from { transform: rotate(-12deg); } to { transform: rotate(12deg); } }
+@keyframes mc-float { from { transform: translate(-5px, 8px); } to { transform: translate(8px, -13px); } }
+@keyframes mc-flicker { from { fill-opacity: 1; } to { fill-opacity: .4; } }
+@keyframes mc-ripple { 0%, 100% { transform: scale(1); } 40% { transform: scale(1.3); } }
+@keyframes mc-roll { from { transform: translateX(0); } to { transform: translateX(-22px); } }
+@keyframes mc-flash { 0%, 40% { fill-opacity: 1; } 50%, 90% { fill-opacity: .35; } 100% { fill-opacity: 1; } }
+@keyframes mc-bob { from { transform: translateY(-2px); } to { transform: translateY(5px); } }
+@keyframes mc-fly { 0% { transform: translate(0, 0); fill-opacity: 1; } 100% { transform: translate(9px, -15px); fill-opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .mc-live * { animation: none !important; } }
+
+/* ── while a radio plays (<html data-ext-source="moodchannels" class="mc-radio">): the bar keeps its theme; a small
+   band left of the cover says which radio ── */
+.mc-radio-band { display: flex; align-items: center; gap: 10px; height: 100%; padding-right: 14px; max-width: 220px; }
+.mc-radio-mark { display: flex; }
+.mc-radio-mark .mc-logo { width: 26px; height: 26px; }
+.mc-radio-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.mc-radio-text small { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.mc-radio-text b { font-size: 13px; font-weight: 650; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* on the now-playing page: where the channel wheel would be (left, in the middle), in the wheel's sizes (its mark 36 px,
+   its names 22 px); the page keeps the same room for it on the left */
+.mc-radio-rail { position: absolute; left: 3vw; top: 50%; transform: translateY(calc(-50% - var(--bar) / 4)); width: 290px;
+  display: flex; align-items: center; gap: 14px; color: rgb(var(--np-ink, 255, 255, 255)); }
+.mc-radio-rail .mc-radio-mark .mc-logo { width: 36px; height: 36px; }
+.mc-radio-rail .mc-radio-text { line-height: 1.3; }
+.mc-radio-rail .mc-radio-text small { font-size: 15px; color: inherit; opacity: .72; }
+.mc-radio-rail .mc-radio-text b { font-size: 22px; font-weight: 750; color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html:root[data-ext-source="moodchannels"].mc-radio #np .np-wrap { padding-left: calc(4vw + 300px); }
+html:root[data-ext-source="moodchannels"].mc-radio #np.nolyrics .np-wrap { padding-right: calc(4vw + 300px); }
+@media (max-width: 1100px) {
+  html:root[data-ext-source="moodchannels"].mc-radio #np .np-wrap, html:root[data-ext-source="moodchannels"].mc-radio #np.nolyrics .np-wrap { padding-left: 6vw; padding-right: 6vw; }
+  .mc-radio-rail { display: none; }
+}
+/* a radio's 👍 / 👎: after its name, in the colours of where they sit (the bar keeps its theme; the now-playing page its ink) */
+:is(.mc-radio-band, .mc-radio-rail) > .mc-votes { position: static; transform: none; margin-left: 4px; flex: none; }
+:is(.mc-radio-band, .mc-radio-rail) .mc-vote { color: inherit; background: color-mix(in srgb, currentColor 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 22%, transparent); }
+:is(.mc-radio-band, .mc-radio-rail) .mc-vote:hover { background: color-mix(in srgb, currentColor 18%, transparent); }
+:is(.mc-radio-band, .mc-radio-rail) .mc-vote[aria-pressed="true"] { color: #fff; }
+.mc-radio-band { color: var(--text); }
+.mc-radio-band .mc-vote { width: 28px; height: 28px; }
+.mc-radio-band .mc-vote .i { width: 15px; height: 15px; }
+.mc-radio-band { max-width: 300px; }
+.mc-radio-rail .mc-radio-text { flex: 1; }
+/* the queue drawer's header while MoodWave chooses what plays (MIKU's queueHead) */
+.mc-qhead { display: flex; align-items: center; gap: 12px; margin: 2px 4px 6px; padding: 10px 12px; border-radius: 12px;
+  background: color-mix(in srgb, var(--pink) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pink) 22%, transparent); }
+.mc-qhead-logo { width: 30px; height: 30px; flex: none; }
+.mc-qhead-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.mc-qhead-text b { font-size: 14px; font-weight: 700; color: var(--text); }
+.mc-qhead-text small { font-size: 12px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the settings' MoodWave Smart Playlist row: the mark before its name */
+.mc-smart-title { display: inline-flex; align-items: center; gap: 8px; }
+.mc-smart-logo { width: 20px; height: 20px; flex: none; }
+.ext-cont > .mc-cont-logo { width: 16px; height: 16px; }
+/* the settings block: a card for the basic features and one for the advanced AI, each folded to its switch while
+   off; the management under both */
+.mc-sc { margin: 4px 22px 14px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: color-mix(in srgb, var(--text) 2%, transparent); }
+.mc-sc-title { padding: 12px 18px 2px; font-size: 12px; font-weight: 650; color: var(--text-3); letter-spacing: .04em; }
+.mc-sc .field { padding-left: 18px; padding-right: 18px; }
+.mc-sc-title + .field { border-top: 0; }
+.mc-sc-body[hidden] { display: none; }
+.mc-sc .mc-method > .field:first-child { border-top: 1px solid var(--line); }
+.sect > .mc-manage { margin: 0 22px 18px; border-top: 0; padding-top: 2px; }
+.mc-sc-body > .field:first-child { border-top: 1px solid var(--line); }
+.mc-enable-title { display: inline-flex; align-items: center; gap: 5px; }
+/* 關於: the mark 56 px on the left (as the other modules' rows), the name, its line, the models' versions */
+.field.mc-about { gap: 16px; padding-top: 16px; padding-bottom: 16px; }
+.field.mc-about .mc-about-logo { width: 56px; height: 56px; flex: none; }
+.field.mc-about .lbl b { font-size: 17px; font-weight: 700; letter-spacing: .01em; }
+.field.mc-about .lbl small { margin-top: 4px; font-size: 13px; }
+.field.mc-about .lbl .mc-about-line { color: var(--text-2); margin-top: 5px; }
+.field.mc-about .lbl small.mc-about-models { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
+.mc-about-models > span { display: inline-flex; align-items: center; gap: 6px; }
+.mc-commit { padding: 2px 7px; border-radius: 6px; background: rgba(var(--ink, 127, 127, 127), .08);
+  font-family: var(--mono, "Cascadia Mono", "Cascadia Code", Consolas, monospace); font-size: 11.5px; line-height: 1.3; color: var(--text-2); letter-spacing: .02em; }
+/* a radio's band comes in and goes out as the channel band does (pushInto / pushOut): its content tucked away meanwhile */
+.mc-radio-band { box-sizing: border-box; flex: none; white-space: nowrap; }
+.mc-radio-band.pushing { overflow: hidden; }
+/* the built-in tuning's row (drawn once the module has it): its own box, so its field keeps the card's line above it */
+.mc-tuning:empty { display: none; }
+.mc-sc-body > .mc-tuning > .field { border-top: 1px solid var(--line); }
+/* a narrow window: the radio's 👍 / 👎 leave the bar (the now-playing page's label keeps them), its name gives way */
+.mc-radio-band.mc-tight > .mc-votes { display: none; }
+.mc-radio-band .mc-radio-text { min-width: 0; overflow: hidden; }
+.mc-radio-band.mc-gone { display: none; }

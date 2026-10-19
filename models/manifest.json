@@ -1,0 +1,85 @@
+{
+ "comment": "Model files are published as release assets, not committed: each model's files are the assets of the release named in `release`, downloaded from `url` and checked against their sha256. tools/fetch-models.js fetches the basic model for a build (MIKU's packaging runs it when models/basic/ is empty); the advanced AI's model (clap) is downloaded by the module itself when the listener turns it on. A model with `url` null is copied from models/ of a local checkout instead (development).",
+ "models": {
+  "basic": {
+   "version": "6b6661beec4a",
+   "release": "basic-6b6661beec4a",
+   "url": "https://github.com/cychang-ykc/MoodWave/releases/download/basic-6b6661beec4a",
+   "files": [
+    {
+     "path": "basic/bpm_octave.trees",
+     "bytes": 3045347,
+     "sha256": "8d299e8c95cb8224f751ba2c56d430bdc651d529bc32716731e291079a19ba3e"
+    },
+    {
+     "path": "basic/model.json",
+     "bytes": 4821,
+     "sha256": "6b6661beec4ae02bdafbd0ca0211d5258f46655daaafc5c2c18d22a75078e367"
+    },
+    {
+     "path": "basic/mood_Dance.trees",
+     "bytes": 1139750,
+     "sha256": "c9daba0081466c1881ff3adab1cc8e6a7456f2604cb93f1fab9c5f81e7c286ac"
+    },
+    {
+     "path": "basic/mood_Emotional.trees",
+     "bytes": 1156646,
+     "sha256": "5f997b8b13f70a16487900de437756664b339a8f556879174d268eb27752e922"
+    },
+    {
+     "path": "basic/mood_Energetic.trees",
+     "bytes": 1706881,
+     "sha256": "cbb7d5648b65762b6bef47eb2a84319b25cef8de9469d8613f2e229180f417fa"
+    },
+    {
+     "path": "basic/mood_Extreme.trees",
+     "bytes": 947524,
+     "sha256": "f3c7f79e43fbca21bd3b5d904c90b22080b4e26d204792532847e31c99c30522"
+    },
+    {
+     "path": "basic/mood_Lounge.trees",
+     "bytes": 1375774,
+     "sha256": "e13d2697880f89b27b1376b124c60beb6fe34ed23f2a3a903e1ab19ac6085930"
+    },
+    {
+     "path": "basic/mood_Mellow.trees",
+     "bytes": 1895924,
+     "sha256": "f17d4b1533e3f7bcbc8c6c16a2ffe6601938cf316ea74abf0175d2df0307a522"
+    },
+    {
+     "path": "basic/mood_Relax.trees",
+     "bytes": 1419605,
+     "sha256": "50dc2b255832e741b374b3eee71d88ff83eb0743df48c485551e6fb89758bca7"
+    },
+    {
+     "path": "basic/mood_Upbeat.trees",
+     "bytes": 1997099,
+     "sha256": "39075ed8d6ca1ca81027fcfd2890091e67990c1b911dbb755dd180820fda1707"
+    },
+    {
+     "path": "basic/none.trees",
+     "bytes": 716707,
+     "sha256": "e346411d95f95bcdf824dcfd403da3ba03671bcba24213a33053ad0a5161855c"
+    },
+    {
+     "path": "basic/time_zone.trees",
+     "bytes": 5031074,
+     "sha256": "c0a9cf3f0f90ac56973f8381c78df7e6a175ab337d098f22222d46e8fa2fc3b6"
+    }
+   ]
+  },
+  "clap": {
+   "version": "57907a3a1232",
+   "licence": "CC0-1.0 (LAION-CLAP music checkpoint, music_audioset_epoch_15_esc_90.14, audio encoder exported to ONNX with its spectrogram front end)",
+   "release": "clap-57907a3a1232",
+   "url": "https://github.com/cychang-ykc/MoodWave/releases/download/clap-57907a3a1232",
+   "files": [
+    {
+     "path": "clap/clap_audio.onnx",
+     "bytes": 285057842,
+     "sha256": "57907a3a123209f35f1a85c83ce1370faf35362325ed61980260d9974893bd4f"
+    }
+   ]
+  }
+ }
+}

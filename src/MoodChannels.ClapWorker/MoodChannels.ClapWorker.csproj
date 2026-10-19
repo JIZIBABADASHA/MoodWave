@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    moodwave-clap: the CLAP embeddings (advanced AI) in a process of their own, started by MoodService (ClapClient)
+    on both systems, so ONNX Runtime and the model's memory stay out of MIKU and playback. It runs at low priority,
+    is a child of the player (Windows' Task Manager lists it under MIKU as "MoodWave 分析") and ends when its stdin
+    closes (the player stopped or crashed).
+      Windows: dotnet publish -c Release -r win-x64, framework-dependent (MoodChannels.Extension's MikuDeploy puts it
+               in ext\moodchannels\clap\; MIKU runs on the installed .NET 8 runtime, and so does this)
+      macOS:   miku/build-helper.sh (self-contained, one file, next to moodwave-helper)
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>MoodChannels.ClapWorker</RootNamespace>
+    <AssemblyName>moodwave-clap</AssemblyName>
+    <AssemblyTitle>MoodWave 分析</AssemblyTitle>
+    <Product>MoodWave</Product>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <RuntimeIdentifiers>win-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+  <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('osx'))">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+  <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">
+    <SelfContained>false</SelfContained>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MoodChannels.Clap\MoodChannels.Clap.csproj" />
+  </ItemGroup>
+  <Import Project="..\Ort.props" />
+</Project>

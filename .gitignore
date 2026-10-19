@@ -1,0 +1,11 @@
+bin/
+obj/
+*.user
+.vs/
+# model files are published as release assets (see models/manifest.json), not committed
+models/**/*.onnx
+models/**/*.trees
+models/**/model.json
+miku.local.props
+# built by miku/build-helper.sh (self-contained .NET, ~35 MB each)
+miku/bin/

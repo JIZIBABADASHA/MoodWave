@@ -1,0 +1,62 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{7A82EB26-2334-4D1F-A077-B838BB3CD78B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MoodChannels.Core", "src\MoodChannels.Core\MoodChannels.Core.csproj", "{08842423-7822-4AE9-975D-ACECF4065FED}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MoodChannels.Cli", "src\MoodChannels.Cli\MoodChannels.Cli.csproj", "{38464429-73F3-438C-A22F-07555FED42A4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MoodChannels.Service", "src\MoodChannels.Service\MoodChannels.Service.csproj", "{C3BADC26-6973-44B5-AA72-D3875D7132E4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MoodChannels.Helper", "src\MoodChannels.Helper\MoodChannels.Helper.csproj", "{B03C9548-52C8-49F5-B6E0-77CF214CC022}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MoodChannels.Clap", "src\MoodChannels.Clap\MoodChannels.Clap.csproj", "{1EC3A75B-B7CC-4727-A4E1-2A2F0D34D18D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MoodChannels.ClapWorker", "src\MoodChannels.ClapWorker\MoodChannels.ClapWorker.csproj", "{FFF8C257-6C19-4C93-A75C-BFE56EE03C38}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{08842423-7822-4AE9-975D-ACECF4065FED}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{08842423-7822-4AE9-975D-ACECF4065FED}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{08842423-7822-4AE9-975D-ACECF4065FED}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{08842423-7822-4AE9-975D-ACECF4065FED}.Release|Any CPU.Build.0 = Release|Any CPU
+		{38464429-73F3-438C-A22F-07555FED42A4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{38464429-73F3-438C-A22F-07555FED42A4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{38464429-73F3-438C-A22F-07555FED42A4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{38464429-73F3-438C-A22F-07555FED42A4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C3BADC26-6973-44B5-AA72-D3875D7132E4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C3BADC26-6973-44B5-AA72-D3875D7132E4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C3BADC26-6973-44B5-AA72-D3875D7132E4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C3BADC26-6973-44B5-AA72-D3875D7132E4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B03C9548-52C8-49F5-B6E0-77CF214CC022}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B03C9548-52C8-49F5-B6E0-77CF214CC022}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B03C9548-52C8-49F5-B6E0-77CF214CC022}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B03C9548-52C8-49F5-B6E0-77CF214CC022}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1EC3A75B-B7CC-4727-A4E1-2A2F0D34D18D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1EC3A75B-B7CC-4727-A4E1-2A2F0D34D18D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1EC3A75B-B7CC-4727-A4E1-2A2F0D34D18D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1EC3A75B-B7CC-4727-A4E1-2A2F0D34D18D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FFF8C257-6C19-4C93-A75C-BFE56EE03C38}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FFF8C257-6C19-4C93-A75C-BFE56EE03C38}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FFF8C257-6C19-4C93-A75C-BFE56EE03C38}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FFF8C257-6C19-4C93-A75C-BFE56EE03C38}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{08842423-7822-4AE9-975D-ACECF4065FED} = {7A82EB26-2334-4D1F-A077-B838BB3CD78B}
+		{38464429-73F3-438C-A22F-07555FED42A4} = {7A82EB26-2334-4D1F-A077-B838BB3CD78B}
+		{C3BADC26-6973-44B5-AA72-D3875D7132E4} = {7A82EB26-2334-4D1F-A077-B838BB3CD78B}
+		{B03C9548-52C8-49F5-B6E0-77CF214CC022} = {7A82EB26-2334-4D1F-A077-B838BB3CD78B}
+		{1EC3A75B-B7CC-4727-A4E1-2A2F0D34D18D} = {7A82EB26-2334-4D1F-A077-B838BB3CD78B}
+		{FFF8C257-6C19-4C93-A75C-BFE56EE03C38} = {7A82EB26-2334-4D1F-A077-B838BB3CD78B}
+	EndGlobalSection
+EndGlobal

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The module's logic, the same on every system: background analysis and loudness, the store (SQLite), votes and
+    the built-in tuning, the page's calls. It reaches the player only through IMoodHost:
+      MoodChannels.Extension  MIKU on Windows (in-process)
+      MoodChannels.Helper     MIKU on macOS (a process of its own, JSON lines with miku/extension.js)
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>MoodChannels.Service</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MoodChannels.Core\MoodChannels.Core.csproj" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+  </ItemGroup>
+</Project>

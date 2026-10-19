@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    CLAP audio embeddings (the advanced AI: Song Radio). A project of its own so ONNX Runtime stays out of the
+    Windows module, which MIKU loads into its own process: CLAP runs in a separate low-priority process
+    (MoodChannels.ClapWorker). Only ONNX Runtime's managed API here; the programs add the native part for their
+    system (..\Ort.props).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>MoodChannels</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MoodChannels.Core\MoodChannels.Core.csproj" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Managed" Version="1.19.2" />
+  </ItemGroup>
+</Project>
