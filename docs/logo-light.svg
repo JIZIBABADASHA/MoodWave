@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 220 220" width="160" height="160">
+  <!-- MoodWave's mark as MIKU draws it (web/moodchannels.js, logo()) -->
+  <g transform="rotate(-12 100 102)">
+    <path d="M100 172 C100 172 28 124 28 76 C28 50 46 32 70 32 C84 32 95 40 100 52 C105 40 116 32 130 32 C154 32 172 50 172 76 C172 124 100 172 100 172 Z" fill="#e23585" stroke="rgba(226,53,133,.45)" stroke-width="6" stroke-linejoin="round"/>
+    <ellipse cx="66" cy="62" rx="22" ry="14" transform="rotate(-38 66 62)" fill="#fff" opacity=".26"/>
+  </g>
+  <path d="M4 104 L30 104 C38 92 50 92 58 104 L82 104 L90 116 L104 46 L122 154 L132 104 L148 104 C158 88 172 88 182 104 L196 104" fill="none" stroke="#e23585" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M4 104 L30 104 C38 92 50 92 58 104 L82 104 L90 116 L104 46 L122 154 L132 104 L148 104 C158 88 172 88 182 104 L196 104" fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

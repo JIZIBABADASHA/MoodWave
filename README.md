@@ -1,4 +1,15 @@
-# MoodWave (code name MoodChannels)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+    <img src="docs/logo-light.svg" width="160" height="160" alt="MoodWave">
+  </picture>
+</p>
+
+<h1 align="center">MoodWave</h1>
+
+<p align="center"><em>Your library, in the right mood.</em></p>
+
+Code name MoodChannels (the projects and namespaces).
 
 Sorts a local music library into **13 listening channels** — five times of day and eight moods — and estimates each
 track's BPM and key. Everything runs locally from the audio itself: no online lookup, no metadata needed.
