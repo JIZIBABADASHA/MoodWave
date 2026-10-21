@@ -252,45 +252,60 @@ sealed class AnalysisQueue
                     _signal.Wait(TimeSpan.FromSeconds(30), _stop.Token);
                     continue;
                 }
-                if (job.LoudOnly)
-                {
-                    var e = _store.Get(job.Path);
-                    if (e != null && AnalysisStore.Current(e, job.Size, job.Mtime) && AnalysisStore.NeedsLoudness(e)) Measure(e);
-                    lock (_lock)
-                    {
-                        _running.Remove(job.Path);
-                        _readerSignal.Release();
-                        _loudDone++; _loudTodo--; _runningLoud--;
-                    }
-                    Changed?.Invoke();
-                    continue;
-                }
-                Entry entry;
                 try
                 {
-                    var f = _analyzer.Extract(job.Path!, _ffmpeg(), lowPriority: true);
-                    entry = _store.Analysed(job.Size, job.Mtime, f);
-                    var p = _analyzer.Classify(f);                     // the channels at once: the page needs no work later
-                    (entry.Model, entry.Ch) = (_analyzer.ModelVersion, p.Unclassifiable ? Array.Empty<int>() : p.Channels);
+                    if (job.LoudOnly)
+                    {
+                        var e = _store.Get(job.Path);
+                        if (e != null && AnalysisStore.Current(e, job.Size, job.Mtime) && AnalysisStore.NeedsLoudness(e)) Measure(e);
+                        lock (_lock)
+                        {
+                            _running.Remove(job.Path);
+                            _readerSignal.Release();
+                            _loudDone++; _loudTodo--; _runningLoud--;
+                        }
+                        Changed?.Invoke();
+                        continue;
+                    }
+                    Entry entry;
+                    try
+                    {
+                        var f = _analyzer.Extract(job.Path!, _ffmpeg(), lowPriority: true);
+                        entry = _store.Analysed(job.Size, job.Mtime, f);
+                        var p = _analyzer.Classify(f);                     // the channels at once: the page needs no work later
+                        (entry.Model, entry.Ch) = (_analyzer.ModelVersion, p.Unclassifiable ? Array.Empty<int>() : p.Channels);
+                    }
+                    catch (Exception ex)
+                    {
+                        entry = new Entry { Size = job.Size, Mtime = job.Mtime, Dsp = Dsp.DspFeatures.Version, Error = ex.Message, At = DateTime.UtcNow };
+                    }
+                    _store.Put(job.Path!, entry);
+                    if (entry.Ok) Measure(entry);                            // the file is still in the cache
+                    lock (_lock)
+                    {
+                        _running.Remove(job.Path!);
+                        _readerSignal.Release();          // room for the reader to go on
+                        if (entry.Ok) { _ok++; _loudDone++; } else _failed++;
+                        _loudTodo--;
+                        _recent.Enqueue(DateTime.UtcNow);
+                        while (_recent.Count > 0 && _recent.Peek() < DateTime.UtcNow.AddMinutes(-2)) _recent.Dequeue();
+                    }
+                    if (!entry.Ok) _log($"analysis failed: {job.Path}: {entry.Error}");
+                    else Analysed?.Invoke(new MoodTrack("", job.Path, "", entry.Duration, job.Size, job.Mtime));
+                    Changed?.Invoke();
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    entry = new Entry { Size = job.Size, Mtime = job.Mtime, Dsp = Dsp.DspFeatures.Version, Error = ex.Message, At = DateTime.UtcNow };
+                    // the store could not be written (disk full, database locked …): the file is left for the next
+                    // refresh; an exception left on this thread would end the player
+                    lock (_lock)
+                        if (_running.Remove(job.Path))
+                        {
+                            if (job.LoudOnly) _runningLoud--;
+                            _readerSignal.Release();
+                        }
+                    _log($"analysis: {job.Path}: {ex.Message}");
                 }
-                _store.Put(job.Path!, entry);
-                if (entry.Ok) Measure(entry);                            // the file is still in the cache
-                lock (_lock)
-                {
-                    _running.Remove(job.Path!);
-                    _readerSignal.Release();          // room for the reader to go on
-                    if (entry.Ok) { _ok++; _loudDone++; } else _failed++;
-                    _loudTodo--;
-                    _recent.Enqueue(DateTime.UtcNow);
-                    while (_recent.Count > 0 && _recent.Peek() < DateTime.UtcNow.AddMinutes(-2)) _recent.Dequeue();
-                }
-                if (!entry.Ok) _log($"analysis failed: {job.Path}: {entry.Error}");
-                else Analysed?.Invoke(new MoodTrack("", job.Path, "", entry.Duration, job.Size, job.Mtime));
-                Changed?.Invoke();
             }
         }
         catch (OperationCanceledException) { }
@@ -302,8 +317,8 @@ sealed class AnalysisQueue
         try { _store.SetLoudness(e, Loudness.Measure(e.Path, _ffmpeg(), lowPriority: true)); }
         catch (Exception ex)
         {
-            _store.SetLoudness(e, null);
             _log($"loudness not measured: {e.Path}: {ex.Message}");
+            _store.SetLoudness(e, null);
         }
     }
 

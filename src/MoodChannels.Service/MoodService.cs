@@ -61,64 +61,84 @@ public sealed class MoodService
         _host = host;
         _store = new AnalysisStore(host.DataDir);
         _store.LoudnessSet += e => LoudnessMeasured?.Invoke(e.Path, e.LoudVer == Loudness.Version ? e.Lufs : null, e.Peak ?? 0);
-        _statusSoon = new Timer(_ => { Interlocked.Exchange(ref _statusQueued, 0); _host.Post("progress", Status()); });
+        _statusSoon = Guarded("status", () => { Interlocked.Exchange(ref _statusQueued, 0); _host.Post("progress", Status()); });
         Task.Run(() =>
         {
-            Analyzer analyzer;
-            try
-            {
-                analyzer = new Analyzer(Path.Combine(host.ModuleDir, "models", "basic"));
-                host.Log($"model {analyzer.ModelVersion}");
-            }
+            try { Init(host); }
             catch (Exception ex)
             {
-                _modelError = ex.Message;
-                host.Log("model unavailable: " + ex.Message);
+                // the module would otherwise sit there loading, with nothing in the log: the settings block shows why
+                _modelError = "MoodWave did not start: " + ex.Message;
+                host.Log("start failed: " + ex);
                 PostStatusSoon();
-                return;
             }
-            host.Log(_store.Load());
-            string seeded = _store.ImportVotes();
-            if (seeded.Length > 0) host.Log(seeded);
-            var personal = new Personalization(_store);
-            host.Log(personal.LoadBuiltIn(Path.Combine(host.ModuleDir, "models", "basic", "tuning.json"), _store.FeatureNames));
-            personal.UseBuiltIn = Setting("builtin", true);
-            personal.Train();
-            // only now the module answers with channels: before, the page would get them without the listener's votes
-            _personal = personal;
-            _analyzer = analyzer;
-            _queue = new AnalysisQueue(_store, analyzer, () => host.Tracks, () => host.FfmpegPath, host.Log);
-            _queue.Changed += PostStatusSoon;
-            var queue = _queue;
-            var clapModel = _clapModel = new ClapModel(host.ModuleDir, host.DataDir, host.Log);
-            _clap = new ClapQueue(_store, () => host.Tracks, () => host.FfmpegPath, () => queue.Busy, () => clapModel.OnnxPath, host.ModuleDir, host.Log);
-            // while the model downloads, its progress goes to the page every second; once there, the work list is made
-            _downloadTick = new Timer(_ => { PostStatusSoon(); if (!clapModel.Downloading) _downloadTick?.Change(Timeout.Infinite, Timeout.Infinite); });
-            clapModel.Changed += () =>
-            {
-                _downloadTick.Change(clapModel.Downloading ? 1000 : Timeout.Infinite, 1000);
-                if (clapModel.Ready) Task.Run(_clap.Refresh);
-                PostStatusSoon();
-            };
-            _clap.Changed += PostStatusSoon;
-            _queue.Analysed += _clap.Fresh;
-            var clapQueue = _clap;
-            _radio = new Radio(_store, () => clapQueue.Model, e => analyzer.Classify(_store.Features(e)).Bpm, host.Log);
-            host.TrackPlayed += OnPlayed;
-            _refreshSoon = new Timer(_ => { _queue.Refresh(); _clap.Refresh(); });
-            // a scan reports many changes in a row: rebuild the work list once things settle
-            host.LibraryChanged += () => _refreshSoon.Change(TimeSpan.FromSeconds(3), Timeout.InfiniteTimeSpan);
-            // what is about to play first: playback events come in bursts, look once they settle
-            _upcomingSoon = new Timer(_ => PrioritizeUpcoming());
-            host.PlaybackChanged += () => _upcomingSoon.Change(400, Timeout.Infinite);
-            _queue.Configure(Setting("enabled", true), Setting("threads", 1));
-            _queue.Refresh();
-            ConfigureClap();
-            Task.Run(() => _radio.Ensure());                 // the embeddings in memory before a radio asks
-            ClassifyStored();
-            Collect();                                       // the listener's adjustments ready before the page asks
-            Ready?.Invoke();
         });
+    }
+
+    /// <summary>A timer whose callback logs what goes wrong in it (an exception left on a timer's thread ends the player).</summary>
+    Timer Guarded(string what, Action callback) => new(_ =>
+    {
+        try { callback(); }
+        catch (Exception ex) { _host.Log($"{what} failed: {ex.Message}"); }
+    });
+
+    /// <summary>Loads the model and the store, then starts the queues (on a thread of its own: the model takes a while).</summary>
+    void Init(IMoodHost host)
+    {
+        Analyzer analyzer;
+        try
+        {
+            analyzer = new Analyzer(Path.Combine(host.ModuleDir, "models", "basic"));
+            host.Log($"model {analyzer.ModelVersion}");
+        }
+        catch (Exception ex)
+        {
+            _modelError = ex.Message;
+            host.Log("model unavailable: " + ex.Message);
+            PostStatusSoon();
+            return;
+        }
+        host.Log(_store.Load());
+        string seeded = _store.ImportVotes();
+        if (seeded.Length > 0) host.Log(seeded);
+        var personal = new Personalization(_store);
+        host.Log(personal.LoadBuiltIn(Path.Combine(host.ModuleDir, "models", "basic", "tuning.json"), _store.FeatureNames));
+        personal.UseBuiltIn = Setting("builtin", true);
+        personal.Train();
+        // only now the module answers with channels: before, the page would get them without the listener's votes
+        _personal = personal;
+        _analyzer = analyzer;
+        _queue = new AnalysisQueue(_store, analyzer, () => host.Tracks, () => host.FfmpegPath, host.Log);
+        _queue.Changed += PostStatusSoon;
+        var queue = _queue;
+        var clapModel = _clapModel = new ClapModel(host.ModuleDir, host.DataDir, host.Log);
+        _clap = new ClapQueue(_store, () => host.Tracks, () => host.FfmpegPath, () => queue.Busy, () => clapModel.OnnxPath, host.ModuleDir, host.Log);
+        // while the model downloads, its progress goes to the page every second; once there, the work list is made
+        _downloadTick = Guarded("download progress", () => { PostStatusSoon(); if (!clapModel.Downloading) _downloadTick?.Change(Timeout.Infinite, Timeout.Infinite); });
+        clapModel.Changed += () =>
+        {
+            _downloadTick.Change(clapModel.Downloading ? 1000 : Timeout.Infinite, 1000);
+            if (clapModel.Ready) Task.Run(_clap.Refresh);
+            PostStatusSoon();
+        };
+        _clap.Changed += PostStatusSoon;
+        _queue.Analysed += _clap.Fresh;
+        var clapQueue = _clap;
+        _radio = new Radio(_store, () => clapQueue.Model, e => analyzer.Classify(_store.Features(e)).Bpm, host.Log);
+        host.TrackPlayed += OnPlayed;
+        _refreshSoon = Guarded("library refresh", () => { _queue.Refresh(); _clap.Refresh(); });
+        // a scan reports many changes in a row: rebuild the work list once things settle
+        host.LibraryChanged += () => _refreshSoon.Change(TimeSpan.FromSeconds(3), Timeout.InfiniteTimeSpan);
+        // what is about to play first: playback events come in bursts, look once they settle
+        _upcomingSoon = Guarded("upcoming", PrioritizeUpcoming);
+        host.PlaybackChanged += () => _upcomingSoon.Change(400, Timeout.Infinite);
+        _queue.Configure(Setting("enabled", true), Setting("threads", 1));
+        _queue.Refresh();
+        ConfigureClap();
+        Task.Run(() => _radio.Ensure());                 // the embeddings in memory before a radio asks
+        ClassifyStored();
+        Collect();                                       // the listener's adjustments ready before the page asks
+        Ready?.Invoke();
     }
 
     /// <summary>The advanced AI's settings to the CLAP queue (off with the analysis).</summary>
@@ -453,7 +473,7 @@ public sealed class MoodService
         if (ids.Count == 0 || key == _upcomingKey) return;
         _upcomingKey = key;
         var tracks = _host.Tracks;
-        var byId = tracks.ToDictionary(t => t.Id);
+        var byId = tracks.GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.First());   // ids may repeat
         var next = ids.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
         if (next.Count == 0) return;
         var now = next[0];
@@ -644,7 +664,7 @@ public sealed class MoodService
         if (ids.Count == 0) return new { ids, start = -1, at = 0.0 };
         // the first track is levelled from its first second only if its loudness is measured already (the gain is
         // set as a track starts): while the library is still being measured, start at one that is
-        var path = _host.Tracks.ToDictionary(t => t.Id, t => t.Path);
+        var path = _host.Tracks.GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.First().Path);
         var measured = Enumerable.Range(0, ids.Count).Where(i => path.TryGetValue(ids[i], out var p) && TryGetLoudness(p, out _, out _)).ToList();
         int start = measured.Count > 0 ? measured[Random.Shared.Next(measured.Count)] : Random.Shared.Next(ids.Count);
         return new { ids, start, at = 0.0 };

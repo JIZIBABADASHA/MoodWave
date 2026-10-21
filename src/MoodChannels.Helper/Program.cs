@@ -73,52 +73,56 @@ while ((line = stdin.ReadLine()) != null)
     JsonNode? m;
     try { m = JsonNode.Parse(line); }
     catch (Exception ex) { Console.Error.WriteLine("bad message: " + ex.Message); continue; }
-    switch ((string?)m?["op"])
+    if ((string?)m?["op"] == "stop") break;
+    // a message this process cannot take (a field of another type …) is left out: the process goes on, as ending it
+    // would leave MoodWave off once extension.js has started it again a few times
+    try
     {
-        case "start" when host == null:
-            host = new Host((string)m!["dataDir"]!, (string)m["moduleDir"]!, (string?)m["ffmpeg"], m["settings"] as JsonObject, Send);
-            service.Start(host);
-            break;
-        case "tracks" when host != null:
-            host.SetTracks(m!["tracks"]!.AsArray());
-            break;
-        case "continue":
+        switch ((string?)m?["op"])
         {
-            // the player asks what comes after the queue's last track (MIKU's 「佇列播完後」, or a radio of ours)
-            var id = m!["id"]!.DeepClone();
-            var played = (m["played"] as JsonArray)?.Select(x => (string)x!).ToList() ?? new List<string>();
-            JsonElement? source = m["source"] is JsonNode src ? JsonSerializer.SerializeToElement(src) : null;
-            bool chosen = (bool?)m["chosen"] ?? false;
-            _ = Task.Run(async () =>
+            case "start" when host == null:
+                host = new Host((string)m!["dataDir"]!, (string)m["moduleDir"]!, (string?)m["ffmpeg"], m["settings"] as JsonObject, Send);
+                service.Start(host);
+                break;
+            case "tracks" when host != null:
+                host.SetTracks(m!["tracks"]!.AsArray());
+                break;
+            case "continue":
             {
-                try { Send(new { id, result = await service.Continue(played, source, chosen) }); }
-                catch (Exception ex) { Send(new { id, error = ex.Message }); }
-            });
-            break;
-        }
-        case "played" when host != null:
-            host.Played(m!);
-            break;
-        case "upcoming" when host != null:
-            host.SetUpcoming(m!["ids"]!.AsArray().Select(x => (string)x!).ToList());
-            break;
-        case "rpc":
-        {
-            var id = m!["id"]!.DeepClone();
-            string method = (string)m["method"]!;
-            var rpcArgs = JsonSerializer.SerializeToElement(m["args"] ?? new JsonObject());
-            _ = Task.Run(async () =>
+                // the player asks what comes after the queue's last track (MIKU's 「佇列播完後」, or a radio of ours)
+                var id = m!["id"]!.DeepClone();
+                var played = (m["played"] as JsonArray)?.Select(x => (string)x!).ToList() ?? new List<string>();
+                JsonElement? source = m["source"] is JsonNode src ? JsonSerializer.SerializeToElement(src) : null;
+                bool chosen = (bool?)m["chosen"] ?? false;
+                _ = Task.Run(async () =>
+                {
+                    try { Send(new { id, result = await service.Continue(played, source, chosen) }); }
+                    catch (Exception ex) { Send(new { id, error = ex.Message }); }
+                });
+                break;
+            }
+            case "played" when host != null:
+                host.Played(m!);
+                break;
+            case "upcoming" when host != null:
+                host.SetUpcoming(m!["ids"]!.AsArray().Select(x => (string)x!).ToList());
+                break;
+            case "rpc":
             {
-                try { Send(new { id, result = await service.HandleRpc(method, rpcArgs) }); }
-                catch (Exception ex) { Send(new { id, error = ex.Message }); }
-            });
-            break;
+                var id = m!["id"]!.DeepClone();
+                string method = (string)m["method"]!;
+                var rpcArgs = JsonSerializer.SerializeToElement(m["args"] ?? new JsonObject());
+                _ = Task.Run(async () =>
+                {
+                    try { Send(new { id, result = await service.HandleRpc(method, rpcArgs) }); }
+                    catch (Exception ex) { Send(new { id, error = ex.Message }); }
+                });
+                break;
+            }
         }
-        case "stop":
-            goto done;
     }
+    catch (Exception ex) { Console.Error.WriteLine($"message not handled ({(string?)m?["op"]}): {ex.Message}"); }
 }
-done:
 service.Stop();
 FlushLoudness();
 return 0;
