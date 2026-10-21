@@ -73,12 +73,14 @@ while ((line = stdin.ReadLine()) != null)
     JsonNode? m;
     try { m = JsonNode.Parse(line); }
     catch (Exception ex) { Console.Error.WriteLine("bad message: " + ex.Message); continue; }
-    if ((string?)m?["op"] == "stop") break;
-    // a message this process cannot take (a field of another type …) is left out: the process goes on, as ending it
-    // would leave MoodWave off once extension.js has started it again a few times
+    // a message this process cannot take (not an object, a field of another type …) is left out: the process goes on,
+    // as ending it would leave MoodWave off once extension.js has started it again a few times
+    string? op = m is JsonObject o && o["op"] is JsonValue v && v.TryGetValue(out string? s) ? s : null;
+    if (op == "stop") break;
     try
     {
-        switch ((string?)m?["op"])
+        if (op == null) throw new InvalidDataException("not an object with an op");
+        switch (op)
         {
             case "start" when host == null:
                 host = new Host((string)m!["dataDir"]!, (string)m["moduleDir"]!, (string?)m["ffmpeg"], m["settings"] as JsonObject, Send);
@@ -121,7 +123,7 @@ while ((line = stdin.ReadLine()) != null)
             }
         }
     }
-    catch (Exception ex) { Console.Error.WriteLine($"message not handled ({(string?)m?["op"]}): {ex.Message}"); }
+    catch (Exception ex) { Console.Error.WriteLine($"message not handled ({op}): {ex.Message}"); }
 }
 service.Stop();
 FlushLoudness();

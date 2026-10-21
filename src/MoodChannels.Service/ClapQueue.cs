@@ -49,6 +49,9 @@ sealed class ClapQueue
     int? _segmentSetting;
     int _total, _done;
     string? _error, _model, _modelPath, _exe;
+    string? _refreshError;                          // the last work list could not be made (shown; it is made again later)
+    readonly Timer _retry;                          // the work list made again after a failure of the store
+    static readonly TimeSpan RetryAfter = TimeSpan.FromMinutes(1);
     ClapClient? _client;
     Task? _loop;
     DateTime _idleSince = DateTime.UtcNow;
@@ -62,6 +65,16 @@ sealed class ClapQueue
                      Func<string?> model, string moduleDir, Action<string> log)
     {
         (_store, _tracks, _ffmpeg, _dspBusy, _downloaded, _moduleDir, _log) = (store, tracks, ffmpeg, dspBusy, model, moduleDir, log);
+        _retry = new Timer(_ =>
+        {
+            try { if (!_stop.IsCancellationRequested) Refresh(); }
+            catch (Exception ex) { _log("CLAP: work list not made again: " + ex.Message); }
+        });
+    }
+
+    void RetrySoon()
+    {
+        try { _retry.Change(RetryAfter, Timeout.InfiniteTimeSpan); } catch (ObjectDisposedException) { }
     }
 
     /// <summary>The model's version once its file is found (embeddings of another one are worked out again); null without.</summary>
@@ -151,7 +164,7 @@ sealed class ClapQueue
     /// <summary>Rebuilds the work list from the library, the DSP analysis and the store.</summary>
     public void Refresh()
     {
-        string? model;
+        string? model, failure = null;
         lock (_lock)
         {
             if (!_enabled) { _pending.Clear(); _fresh.Clear(); _urgent.Clear(); _total = _done = 0; Changed?.Invoke(); return; }
@@ -163,7 +176,13 @@ sealed class ClapQueue
             _exe = FindWorker();
             model = _modelPath != null ? ModelVersion(_modelPath) : null;
         }
-        catch (Exception ex) { model = null; lock (_lock) _error = ex.Message; }
+        catch (Exception ex)
+        {
+            // the model's version not known (the store busy …): nothing is done without it, and it is tried again
+            model = null;
+            failure = ex.Message;
+            RetrySoon();
+        }
         int segments = Segments;
         var todo = new List<Job>();
         int total = 0, done = 0;
@@ -179,6 +198,7 @@ sealed class ClapQueue
         lock (_lock)
         {
             _model = model;
+            _refreshError = failure;
             var first = new HashSet<string>(_urgent.Concat(_fresh).Select(j => j.Path), StringComparer.OrdinalIgnoreCase);
             _pending.Clear();
             foreach (var j in todo) if (!first.Contains(j.Path) && !_running.Contains(j.Path)) _pending.AddLast(j);
@@ -337,13 +357,26 @@ sealed class ClapQueue
         if (!crashed)
         {
             var r = task.Result;
-            if (r.Error != null)
+            try
             {
-                _store.ClapFailed(job.Path, job.Size, job.Mtime, model, r.Error);
-                _log($"CLAP failed: {job.Path}: {r.Error}");
+                if (r.Error != null)
+                {
+                    _store.ClapFailed(job.Path, job.Size, job.Mtime, model, r.Error);
+                    _log($"CLAP failed: {job.Path}: {r.Error}");
+                }
+                else if (r.Windows == 0) _store.ClapFailed(job.Path, job.Size, job.Mtime, model, null);   // too short
+                else _store.AddClap(job.Path, job.Size, job.Mtime, model, r.Windows, r.Embeddings);
             }
-            else if (r.Windows == 0) _store.ClapFailed(job.Path, job.Size, job.Mtime, model, null);   // too short
-            else _store.AddClap(job.Path, job.Size, job.Mtime, model, r.Windows, r.Embeddings);
+            catch (Exception ex)
+            {
+                // the store could not be written (the database busy …): the file is not done, and not left as running
+                // (a work list skips those): it comes back when the work list is made again, in a minute
+                lock (_lock) _running.Remove(job.Path);
+                _log($"CLAP: {job.Path} not stored: {ex.Message} (tried again in a minute)");
+                RetrySoon();
+                Changed?.Invoke();
+                return;
+            }
         }
         lock (_lock)
         {
@@ -446,7 +479,7 @@ sealed class ClapQueue
             {
                 enabled = _enabled, paused = _paused, segments = Segments, segmentSetting = _segmentSetting, gpu = _gpu, gpuCapable = OperatingSystem.IsWindows(),
                 threads = Threads, threadSetting = _threadSetting, cpus = Environment.ProcessorCount,
-                device = _device, running = _client != null, model = _model, error = _error,
+                device = _device, running = _client != null, model = _model, error = _error ?? _refreshError,
                 worker = _exe != null || FindWorker() != null, modelFound = _modelPath != null,
                 total = _total, done = _done, pending, waitingForDsp = pending > 0 && _urgent.Count + _fresh.Count + _running.Count == 0 && busy,
                 perHour = Math.Round(rate), etaMinutes = rate > 0 && pending > 0 ? Math.Ceiling(pending / rate * 60) : (double?)null,
@@ -457,6 +490,7 @@ sealed class ClapQueue
     public void Stop()
     {
         _stop.Cancel();
+        _retry.Dispose();
         Wake();
         StopClient();
     }

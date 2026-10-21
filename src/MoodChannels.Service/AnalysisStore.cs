@@ -639,10 +639,10 @@ sealed class AnalysisStore : IDisposable
         lock (_lock) PutClap(new ClapEntry { Path = path, Size = size, Mtime = mtime, Model = model, Error = error, At = DateTime.UtcNow }, null);
     }
 
+    /// <summary>Stores a CLAP entry: in the database, then in memory (one the database did not take is not there, so it is worked out again).</summary>
     void PutClap(ClapEntry c, float[]? sum)
     {
-        _clap[c.Path] = c;
-        if (_db == null) return;
+        if (_db == null) { _clap[c.Path] = c; return; }
         using var cmd = _db.CreateCommand();
         cmd.CommandText = @"INSERT INTO embeddings (path, size, mtime, model, windows, mask, sum, error, at)
             VALUES ($p, $s, $m, $model, $w, $mask, $sum, $e, $at)
@@ -658,6 +658,7 @@ sealed class AnalysisStore : IDisposable
         cmd.Parameters.AddWithValue("$e", (object?)c.Error ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$at", new DateTimeOffset(c.At, TimeSpan.Zero).ToUnixTimeSeconds());
         cmd.ExecuteNonQuery();
+        _clap[c.Path] = c;
     }
 
     /// <summary>The sum of a file's embedded windows (divide by the mask's bits for the mean), or null.</summary>

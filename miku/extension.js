@@ -20,6 +20,8 @@ let nextId = 1;
 const waiting = new Map();                              // rpc id → resolve
 const loudness = new Map();                             // path → [lufs | null (silent), true peak]
 let restarts = 0, stopping = false, libTimer = null, lastUpcoming = '';
+let readyAt = 0;                                        // when the helper last said it was ready
+const STABLE = 10 * 60 * 1000;                          // a helper that ran this long before ending: its restarts start over
 
 /** The module's root: models/ and web/ are next to this folder in a checkout, inside it when installed. */
 function moduleDir() {
@@ -69,7 +71,7 @@ function onLine(line) {
   } else if (m.ev) host.post(m.ev, m.data);
   else if (m.setting) host.setSetting(m.setting, m.value);
   else if (m.log != null) host.log(m.log);
-  else if (m.ready) { restarts = 0; sendUpcoming(); }
+  else if (m.ready) { readyAt = Date.now(); sendUpcoming(); }
 }
 
 function startHelper() {
@@ -92,7 +94,10 @@ function startHelper() {
     waiting.clear();
     if (stopping) return;
     host.log(`moodwave-helper stopped (${why})`);
-    // a crash: start again a few times, then leave MoodWave off for this session
+    // a crash: start again a few times, then leave MoodWave off for this session. One that ends again soon after it
+    // started (the same file each time …) uses those up; one that had run a while starts over.
+    if (readyAt && Date.now() - readyAt > STABLE) restarts = 0;
+    readyAt = 0;
     if (restarts++ < 3) setTimeout(() => { if (!stopping && !proc) { startHelper(); sendTracks(); } }, 2000 * restarts);
   };
   p.on('error', e => ended(e.message));
