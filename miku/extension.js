@@ -80,6 +80,7 @@ function startHelper() {
   const settings = {};
   for (const k of SETTINGS) { const v = host.getSetting(k); if (v != null) settings[k] = v; }
   const p = proc = spawn(exe, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+  lastUpcoming = '';                                    // a new helper knows nothing yet: what plays next goes to it on ready
   p.stdin.on('error', () => { });
   readline.createInterface({ input: p.stdout }).on('line', line => { if (proc === p) onLine(line); });
   let partial = '';

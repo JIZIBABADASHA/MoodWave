@@ -45,6 +45,7 @@ sealed class AnalysisQueue
     string? _reading;                           // the file the reader is on
     long _readyBytes;
     readonly HashSet<string> _running = new(StringComparer.OrdinalIgnoreCase);
+    readonly HashSet<string> _loudFailed = new(StringComparer.OrdinalIgnoreCase);   // loudness not measured this session (Measure)
     readonly Queue<DateTime> _recent = new();   // completion times, for the rate
     int _threads = 1;
     bool _enabled, _paused;
@@ -84,6 +85,8 @@ sealed class AnalysisQueue
         int total = 0, ok = 0, failed = 0, loudDone = 0;
         var todo = new List<Job>();
         var loud = new List<Job>();
+        HashSet<string> loudFailed;
+        lock (_lock) loudFailed = new(_loudFailed, StringComparer.OrdinalIgnoreCase);
         foreach (var t in tracks.OrderBy(t => t.Path, StringComparer.OrdinalIgnoreCase))
         {
             if (string.IsNullOrEmpty(t.Path) || !Path.IsPathFullyQualified(t.Path)) continue;
@@ -93,7 +96,8 @@ sealed class AnalysisQueue
             {
                 if (!e!.Ok) { failed++; continue; }
                 ok++;
-                if (AnalysisStore.NeedsLoudness(e)) loud.Add(new Job(t.Path, t.Size, t.Mtime, true)); else loudDone++;
+                // one whose measuring failed this session counts as tried (again at the next start)
+                if (AnalysisStore.NeedsLoudness(e) && !loudFailed.Contains(t.Path)) loud.Add(new Job(t.Path, t.Size, t.Mtime, true)); else loudDone++;
                 continue;
             }
             if (t.Duration > MaxMinutes * 60)
@@ -320,15 +324,23 @@ sealed class AnalysisQueue
         catch (OperationCanceledException) { }
     }
 
-    /// <summary>Measures an entry's loudness and stores it (a failure is stored too: not tried again until the file changes).</summary>
+    /// <summary>
+    /// Measures an entry's loudness and stores it. A failure is not stored (stored, it would read as silence, and the
+    /// track would go unlevelled until it changes, for what may have been once: ffmpeg too slow under load, the file in
+    /// use): the file is left out for this session and measured again at the next start. A failure of the store goes
+    /// to the caller (the work list made again later).
+    /// </summary>
     void Measure(Entry e)
     {
-        try { _store.SetLoudness(e, Loudness.Measure(e.Path, _ffmpeg(), lowPriority: true, _stop.Token)); }
+        Loudness.Result? r;
+        try { r = Loudness.Measure(e.Path, _ffmpeg(), lowPriority: true, _stop.Token); }
         catch (Exception ex) when (ex is not OperationCanceledException)   // closing: measured at the next start
         {
-            _log($"loudness not measured: {e.Path}: {ex.Message}");
-            _store.SetLoudness(e, null);
+            lock (_lock) _loudFailed.Add(e.Path);
+            _log($"loudness not measured: {e.Path}: {ex.Message} (tried again at the next start)");
+            return;
         }
+        _store.SetLoudness(e, r);
     }
 
     public object Status(string? modelVersion, string? modelError)

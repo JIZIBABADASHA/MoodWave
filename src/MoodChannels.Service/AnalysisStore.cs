@@ -103,26 +103,31 @@ sealed class AnalysisStore : IDisposable
         lock (_lock) return _radioVotes.TryGetValue(origin, out var d) ? new(d, StringComparer.OrdinalIgnoreCase) : new(StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>Sets (or with 0 removes) a vote on a track in radios from <paramref name="origin"/>.</summary>
+    /// <summary>
+    /// Sets (or with 0 removes) a vote on a track in radios from <paramref name="origin"/>: in the database, then in
+    /// memory (one the database did not take is not shown as taken).
+    /// </summary>
     public void SetRadioVote(string origin, string path, int vote)
     {
         lock (_lock)
         {
+            if (_db != null)
+            {
+                using var cmd = _db.CreateCommand();
+                if (vote == 0) cmd.CommandText = "DELETE FROM radio_votes WHERE origin = $o AND path = $p";
+                else
+                {
+                    cmd.CommandText = @"INSERT INTO radio_votes (origin, path, vote, at) VALUES ($o, $p, $v, $at)
+                                        ON CONFLICT(origin, path) DO UPDATE SET vote = excluded.vote, at = excluded.at";
+                    cmd.Parameters.AddWithValue("$v", Math.Sign(vote));
+                    cmd.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                }
+                cmd.Parameters.AddWithValue("$o", origin);
+                cmd.Parameters.AddWithValue("$p", path);
+                cmd.ExecuteNonQuery();
+            }
             var d = RadioVotesOf(origin);
             if (vote == 0) d.Remove(path); else d[path] = Math.Sign(vote);
-            if (_db == null) return;
-            using var cmd = _db.CreateCommand();
-            if (vote == 0) cmd.CommandText = "DELETE FROM radio_votes WHERE origin = $o AND path = $p";
-            else
-            {
-                cmd.CommandText = @"INSERT INTO radio_votes (origin, path, vote, at) VALUES ($o, $p, $v, $at)
-                                    ON CONFLICT(origin, path) DO UPDATE SET vote = excluded.vote, at = excluded.at";
-                cmd.Parameters.AddWithValue("$v", Math.Sign(vote));
-                cmd.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-            }
-            cmd.Parameters.AddWithValue("$o", origin);
-            cmd.Parameters.AddWithValue("$p", path);
-            cmd.ExecuteNonQuery();
         }
     }
 
@@ -334,7 +339,7 @@ sealed class AnalysisStore : IDisposable
         cmd.ExecuteNonQuery();
     }
 
-    /// <summary>An entry's loudness was measured (or found silent / unmeasurable).</summary>
+    /// <summary>An entry's loudness was measured (or found silent) and stored.</summary>
     public event Action<Entry>? LoudnessSet;
 
     /// <summary>Every successful entry measured by this version: (path, LUFS or null when silent, true peak).</summary>
@@ -344,27 +349,27 @@ sealed class AnalysisStore : IDisposable
             return _entries.Values.Where(e => e.Ok && e.LoudVer == Loudness.Version).Select(e => (e.Path, e.Lufs, e.Peak ?? 0)).ToList();
     }
 
-    /// <summary>Sets an entry's loudness (null = silent or unreadable), in memory and in the database.</summary>
+    /// <summary>
+    /// Sets an entry's loudness (null = silent), in the database, then in memory: one the database did not take is
+    /// still to measure (and not announced).
+    /// </summary>
     public void SetLoudness(Entry e, Loudness.Result? r)
-    {
-        try { SetLoudnessCore(e, r); }
-        finally { LoudnessSet?.Invoke(e); }
-    }
-
-    void SetLoudnessCore(Entry e, Loudness.Result? r)
     {
         lock (_lock)
         {
+            if (_db != null)
+            {
+                using var cmd = _db.CreateCommand();
+                cmd.CommandText = "UPDATE tracks SET loudness = $l, peak = $pk, loud_ver = $v WHERE path = $p";
+                cmd.Parameters.AddWithValue("$l", (object?)r?.Lufs ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$pk", (object?)r?.Peak ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$v", Loudness.Version);
+                cmd.Parameters.AddWithValue("$p", e.Path);
+                cmd.ExecuteNonQuery();
+            }
             (e.Lufs, e.Peak, e.LoudVer) = (r?.Lufs, r?.Peak, Loudness.Version);
-            if (_db == null) return;
-            using var cmd = _db.CreateCommand();
-            cmd.CommandText = "UPDATE tracks SET loudness = $l, peak = $pk, loud_ver = $v WHERE path = $p";
-            cmd.Parameters.AddWithValue("$l", (object?)e.Lufs ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$pk", (object?)e.Peak ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$v", e.LoudVer);
-            cmd.Parameters.AddWithValue("$p", e.Path);
-            cmd.ExecuteNonQuery();
         }
+        LoudnessSet?.Invoke(e);
     }
 
     /// <summary>Whether a successful entry still needs its loudness measured (by this version).</summary>
@@ -464,35 +469,42 @@ sealed class AnalysisStore : IDisposable
     /// <summary>The listener's vote on a track in a channel: +1, -1, or 0 for none.</summary>
     public int Vote(string path, int channel) { lock (_lock) return _votes.TryGetValue((path, channel), out var v) ? v : 0; }
 
-    /// <summary>Sets (or with 0 removes) a vote, in memory and in the database at once.</summary>
+    /// <summary>Sets (or with 0 removes) a vote, in the database and in memory at once.</summary>
     public void SetVote(string path, int channel, int vote, DateTime? at = null) => SetVotes(new[] { (path, channel, vote, at) });
 
+    /// <summary>Sets votes in one transaction, then in memory: when the database does not take them, none is taken.</summary>
     public void SetVotes(IEnumerable<(string Path, int Channel, int Vote, DateTime? At)> votes)
     {
+        var list = votes.ToList();
         lock (_lock)
         {
-            using var tx = _db?.BeginTransaction();
-            foreach (var (path, channel, vote, at) in votes)
-            {
+            if (_db != null) WriteVotes(list);
+            foreach (var (path, channel, vote, _) in list)
                 if (vote == 0) _votes.Remove((path, channel)); else _votes[(path, channel)] = Math.Sign(vote);
-                if (_db == null) continue;
-                using var cmd = _db.CreateCommand();
-                cmd.Transaction = tx;
-                if (vote == 0)
-                    cmd.CommandText = "DELETE FROM votes WHERE path = $p AND channel = $c";
-                else
-                {
-                    cmd.CommandText = @"INSERT INTO votes (path, channel, vote, at) VALUES ($p, $c, $v, $at)
-                                        ON CONFLICT(path, channel) DO UPDATE SET vote = excluded.vote, at = excluded.at";
-                    cmd.Parameters.AddWithValue("$v", Math.Sign(vote));
-                    cmd.Parameters.AddWithValue("$at", new DateTimeOffset(at ?? DateTime.UtcNow, TimeSpan.Zero).ToUnixTimeSeconds());
-                }
-                cmd.Parameters.AddWithValue("$p", path);
-                cmd.Parameters.AddWithValue("$c", channel);
-                cmd.ExecuteNonQuery();
-            }
-            tx?.Commit();
         }
+    }
+
+    void WriteVotes(List<(string Path, int Channel, int Vote, DateTime? At)> votes)
+    {
+        using var tx = _db!.BeginTransaction();
+        foreach (var (path, channel, vote, at) in votes)
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.Transaction = tx;
+            if (vote == 0)
+                cmd.CommandText = "DELETE FROM votes WHERE path = $p AND channel = $c";
+            else
+            {
+                cmd.CommandText = @"INSERT INTO votes (path, channel, vote, at) VALUES ($p, $c, $v, $at)
+                                    ON CONFLICT(path, channel) DO UPDATE SET vote = excluded.vote, at = excluded.at";
+                cmd.Parameters.AddWithValue("$v", Math.Sign(vote));
+                cmd.Parameters.AddWithValue("$at", new DateTimeOffset(at ?? DateTime.UtcNow, TimeSpan.Zero).ToUnixTimeSeconds());
+            }
+            cmd.Parameters.AddWithValue("$p", path);
+            cmd.Parameters.AddWithValue("$c", channel);
+            cmd.ExecuteNonQuery();
+        }
+        tx.Commit();
     }
 
     /// <summary>Every vote of one channel: (entry, vote) for the files that are analysed.</summary>
@@ -675,14 +687,17 @@ sealed class AnalysisStore : IDisposable
         }
     }
 
-    /// <summary>Drops every CLAP embedding (the listener deleted the AI data); returns how many.</summary>
+    /// <summary>
+    /// Drops every CLAP embedding (the listener deleted the AI data); returns how many. The database first: when it
+    /// cannot delete them (an exception), memory keeps them too, so they do not look deleted and come back at the next start.
+    /// </summary>
     public int ForgetClap()
     {
         lock (_lock)
         {
+            if (_db != null) Exec("DELETE FROM embeddings;");
             int n = _clap.Count;
             _clap.Clear();
-            if (_db != null) Exec("DELETE FROM embeddings;");
             return n;
         }
     }
@@ -691,14 +706,14 @@ sealed class AnalysisStore : IDisposable
     public static bool Current(Entry? e, long size, long mtime) =>
         e != null && e.Size == size && e.Mtime == mtime && e.Dsp == DspFeatures.Version;
 
-    /// <summary>Drops failed entries (all = every entry) so they are analysed again.</summary>
+    /// <summary>Drops failed entries (all = every entry) so they are analysed again: in the database, then in memory.</summary>
     public int Forget(bool all)
     {
         lock (_lock)
         {
+            if (_db != null) Exec(all ? "DELETE FROM tracks;" : "DELETE FROM tracks WHERE ok = 0;");
             var drop = _entries.Where(kv => all || !kv.Value.Ok).Select(kv => kv.Key).ToList();
             foreach (var k in drop) _entries.Remove(k);
-            if (_db != null) Exec(all ? "DELETE FROM tracks;" : "DELETE FROM tracks WHERE ok = 0;");
             return drop.Count;
         }
     }
