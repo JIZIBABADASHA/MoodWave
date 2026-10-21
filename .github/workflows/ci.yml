@@ -1,0 +1,25 @@
+# Builds everything that builds without MIKU (MoodChannels.sln: the engine, the service, the macOS helper, the CLAP
+# process, the command line) and runs the unit tests (tests/MoodChannels.Tests), on the three systems the module runs
+# on. The Windows module (src/MoodChannels.Extension) needs a MIKU checkout and is not built here; neither ffmpeg nor
+# the models are needed.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet build MoodChannels.sln -c Release
+      - run: dotnet test tests/MoodChannels.Tests -c Release --no-build
