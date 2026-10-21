@@ -317,12 +317,23 @@ sealed class ClapQueue
     void Finish(Job job, Task<ClapClient.Result> task)
     {
         string model = _model ?? "";
-        bool crashed = task.IsFaulted;
-        if (crashed && _stop.IsCancellationRequested)
+        if (task.IsCanceled || task.IsFaulted && _stop.IsCancellationRequested)
         {
-            lock (_lock) _running.Remove(job.Path);              // the player is closing: the process was stopped, not crashed
+            // the process was stopped, not crashed (a setting changed, the advanced AI turned off, the player closing):
+            // not the track's fault, it goes first to the next process (the work list made meanwhile left it out)
+            lock (_lock)
+            {
+                _running.Remove(job.Path);
+                if (_enabled && !_stop.IsCancellationRequested)
+                {
+                    Remove(job.Path);
+                    _pending.AddFirst(job);
+                }
+            }
+            Changed?.Invoke();
             return;
         }
+        bool crashed = task.IsFaulted;
         if (!crashed)
         {
             var r = task.Result;

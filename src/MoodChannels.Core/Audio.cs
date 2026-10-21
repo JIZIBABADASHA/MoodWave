@@ -22,17 +22,43 @@ public static class Audio
         foreach (var a in new[] { "-v", "error", "-nostdin", "-i", path, "-t", maxSeconds.ToString(), "-map", "0:a:0",
                                   "-ac", "1", "-ar", SampleRate.ToString(), "-f", "f32le", "-" })
             psi.ArgumentList.Add(a);
-        using var ms = new MemoryStream();
+        float[] pcm = Array.Empty<float>();
         var (err, exit) = Ffmpeg.Run(psi, p =>
         {
             var e = p.StandardError.ReadToEndAsync();
-            p.StandardOutput.BaseStream.CopyTo(ms);
+            pcm = ReadPcm(p.StandardOutput.BaseStream);
             return e.Result;
         }, lowPriority, cancel: cancel);
         if (exit != 0) throw new InvalidDataException("ffmpeg failed: " + err.Trim());
-        var bytes = ms.GetBuffer();
-        var pcm = new float[ms.Length / 4];
-        Buffer.BlockCopy(bytes, 0, pcm, 0, pcm.Length * 4);
+        return pcm;
+    }
+
+    /// <summary>
+    /// float32 samples (f32le) from a stream, to its end. Read in small blocks and put together once at the end: a
+    /// growing buffer (MemoryStream) holds up to twice the track while it grows, and a copy of it a third time.
+    /// </summary>
+    public static float[] ReadPcm(Stream input)
+    {
+        const int Block = 64 << 10;                         // under the large object heap's 85 000 bytes
+        var blocks = new List<byte[]>();
+        long total = 0;
+        while (true)
+        {
+            var b = new byte[Block];
+            int n = 0, r;
+            while (n < Block && (r = input.Read(b, n, Block - n)) > 0) n += r;
+            if (n > 0) blocks.Add(n == Block ? b : b[..n]);
+            total += n;
+            if (n < Block) break;
+        }
+        var pcm = new float[total / 4];
+        int at = 0, bytes = pcm.Length * 4;
+        foreach (var b in blocks)
+        {
+            int len = Math.Min(b.Length, bytes - at);       // a last odd byte or three: not a whole sample
+            if (len > 0) Buffer.BlockCopy(b, 0, pcm, at, len);
+            at += len;
+        }
         return pcm;
     }
 }
