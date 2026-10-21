@@ -79,6 +79,22 @@ sealed class Radio
         _log($"radio: {all.Count} embeddings in memory ({sw.ElapsedMilliseconds} ms)");
     }
 
+    /// <summary>
+    /// Drops the embeddings in memory (the listener deleted the AI data): the next <see cref="Ensure"/> reads the store
+    /// again. The tracks skipped lately go too (they are kept as their embeddings).
+    /// </summary>
+    public void Forget()
+    {
+        lock (_lock)
+        {
+            _row.Clear();
+            _rows = 0;
+            _vec = Array.Empty<float>();
+            _indexModel = null;
+            _skips.Clear();
+        }
+    }
+
     void Add(ClapEntry e, float[] sum)
     {
         lock (_lock) if (e.Model == _indexModel) Put(e.Path, sum);

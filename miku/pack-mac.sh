@@ -20,10 +20,9 @@ ARCHS=("$@"); [ ${#ARCHS[@]} -gt 0 ] || ARCHS=(arm64 x86_64)
 mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
 fail() { echo "moodwave: $1" >&2; exit 1; }
 
-# the channel models are release assets (models/manifest.json): fetched and checked when models/basic/ has none
-if ! ls "$ROOT"/models/basic/*.trees >/dev/null 2>&1; then
-  python3 "$ROOT/tools/fetch-models.py" basic || fail "models/basic/ has no model files and they could not be fetched (tools/fetch-models.py)"
-fi
+# the channel models are release assets (models/manifest.json): fetched and checked, every time (files already there
+# and checked are kept; a download cut short before has some files, not all)
+python3 "$ROOT/tools/fetch-models.py" basic || fail "models/basic/ is not complete and could not be fetched (tools/fetch-models.py)"
 for arch in "${ARCHS[@]}"; do
   case "$arch" in
     arm64) tag=arm64; rid=osx-arm64 ;;

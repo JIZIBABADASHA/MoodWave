@@ -159,6 +159,7 @@ sealed class AnalysisStore : IDisposable
                      path TEXT NOT NULL COLLATE NOCASE, at INTEGER NOT NULL, seconds REAL, duration REAL,
                      skipped INTEGER NOT NULL, stopped INTEGER NOT NULL, kind TEXT);
                    CREATE INDEX IF NOT EXISTS plays_path ON plays (path);
+                   CREATE INDEX IF NOT EXISTS plays_at ON plays (at);
                    CREATE TABLE IF NOT EXISTS radio_votes (
                      origin TEXT NOT NULL, path TEXT NOT NULL COLLATE NOCASE, vote INTEGER NOT NULL, at INTEGER,
                      PRIMARY KEY (origin, path));

@@ -1,7 +1,8 @@
 <Project>
   <!--
-    The basic channel models are release assets (models/manifest.json), not committed: MikuFetchModels downloads them
-    into models\basic\ when it has none, each checked against its SHA-256 (as tools/fetch-models.py does on the Mac).
+    The basic channel models are release assets (models/manifest.json), not committed: MikuFetchModels downloads into
+    models\basic\ the files it lacks or that do not check, each checked against its SHA-256 (as tools/fetch-models.py
+    does on the Mac).
     In MSBuild itself, so a MIKU build needs nothing but the .NET SDK. (An inline task sees .NET Standard 2.0 only: the
     manifest, which this repository writes, is read with regular expressions.)
   -->
@@ -58,7 +59,8 @@
         ]]></Code>
     </Task>
   </UsingTask>
-  <Target Name="MikuFetchModels" Condition="!Exists('$(MSBuildThisFileDirectory)..\models\basic\model.json')">
+  <!-- every build: a file already there and checked is kept (a download cut short before has some files, not all) -->
+  <Target Name="MikuFetchModels">
     <MoodWaveFetchModels ModelsDir="$(MSBuildThisFileDirectory)..\models" Model="basic" />
   </Target>
 </Project>

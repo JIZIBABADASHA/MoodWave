@@ -32,7 +32,9 @@ public sealed class MoodService
     // it depends on keep their versions (Personalization.Versions), and dropped when the listener votes on the track.
     // Probs: the channel model's probabilities, when they were needed (they change only with the model)
     sealed record Adjusted(string Model, int[] Base, int[] Channels, (int Channel, int Version)[] Looked, double[]? Probs);
+    static readonly (int, int)[] Stale = { (0, -1) };       // a version no channel has: worked out again when next asked
     readonly ConditionalWeakTable<Entry, Adjusted> _adjusted = new();
+    int _votesCast;                                  // counts the listener's votes: an adjustment worked out across one is stale
     Timer? _refreshSoon, _statusSoon, _upcomingSoon;
     Action? _onLibraryChanged, _onPlaybackChanged;   // kept to unsubscribe them (Stop)
     readonly object _life = new();                   // Init's wiring against Stop
@@ -227,12 +229,15 @@ public sealed class MoodService
         bool have = _adjusted.TryGetValue(e, out var a) && a.Model == model;
         if (have && ReferenceEquals(a!.Base, channels) && a.Looked.All(l => p.VersionOf(l.Channel) == l.Version))
             return a.Channels;
-        // the versions before working it out: a training meanwhile leaves the result stale, never taken for current
+        // the versions (and the votes) before working it out: a training or a vote meanwhile leaves the result stale,
+        // never taken for current
+        int votes = Volatile.Read(ref _votesCast);
         var versions = p.Versions();
         var looked = new HashSet<int>();
         double[]? probs = have ? a!.Probs : null;
         var adjusted = p.Adjust(e, channels, _analyzer.Model, () => probs ??= _analyzer.Classify(_store.Features(e)).Probabilities, looked);
-        _adjusted.AddOrUpdate(e, new Adjusted(model, channels, adjusted, looked.Select(c => (c, versions[c])).ToArray(), probs));
+        var stamp = Volatile.Read(ref _votesCast) == votes ? looked.Select(c => (c, versions[c])).ToArray() : Stale;
+        _adjusted.AddOrUpdate(e, new Adjusted(model, channels, adjusted, stamp, probs));
         return adjusted;
     }
 
@@ -473,9 +478,10 @@ public sealed class MoodService
         string? path = PathOf(id);
         if (path == null || channel < 0 || channel >= Channels.Count || _personal == null) return new { vote = 0, known = false };
         _store.SetVote(path, channel, Math.Sign(vote));
+        Interlocked.Increment(ref _votesCast);
         // the track itself: its vote decides it now (its probabilities are kept)
         if (_store.Get(path) is { } voted && _adjusted.TryGetValue(voted, out var was))
-            _adjusted.AddOrUpdate(voted, was with { Looked = new[] { (channel, -1) } });
+            _adjusted.AddOrUpdate(voted, was with { Looked = Stale });
         _personal.Train(channel);
         _host.Log($"vote {Math.Sign(vote):+0;-0;0} on {Channels.Names[channel]}: {path}");
         return VoteState(id, channel);
@@ -610,7 +616,12 @@ public sealed class MoodService
                 return Task.FromResult<object>(new { ready = RadioReady, count = _radio?.Count ?? 0 });
             case "ai.forget":
                 // every embedding worked out again (if the advanced AI is on), the model kept
-                return Task.Run(() => (object)new { forgotten = _clap?.Forget() ?? _store.ForgetClap() });
+                return Task.Run(() =>
+                {
+                    int n = _clap?.Forget() ?? _store.ForgetClap();
+                    _radio?.Forget();                        // the radio's copy in memory too
+                    return (object)new { forgotten = n };
+                });
             case "ai.download":
                 _clapModel?.Download();
                 return Task.FromResult(Status());
@@ -625,6 +636,7 @@ public sealed class MoodService
                     ConfigureClap();
                     bool model = _clapModel?.Delete() ?? true;
                     int n = _store.ForgetClap();
+                    _radio?.Forget();
                     _host.Log($"AI data deleted ({n} embeddings{(model ? " and the model" : "; the model could not be")})");
                     return Status();
                 });
