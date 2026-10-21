@@ -218,9 +218,11 @@ sealed class ClapQueue
         {
             if (!_enabled || _model == null) return;
             if (!Needs(_store.Clap(t.Path), t.Size, t.Mtime, _model, Segments)) return;
-            _total++;
+            if (_running.Contains(t.Path)) return;           // a refresh since gave it to the process already
+            // a refresh between the DSP analysis storing the file and reporting it (loudness is measured in between)
+            // has it in the work list, counted: it moves up, not counted twice
+            if (!Remove(t.Path)) _total++;
             var job = new Job(t.Path, t.Size, t.Mtime);
-            Remove(t.Path);
             if (_wanted.Remove(t.Path)) _urgent.AddLast(job);
             else if (_fresh.Count < MaxFresh && _device is string d && d != "CPU") _fresh.AddLast(job);
             else _pending.AddLast(job);
@@ -228,11 +230,14 @@ sealed class ClapQueue
         Wake();
     }
 
-    void Remove(string path)
+    /// <summary>Takes a file out of the work lists; false when it was in none.</summary>
+    bool Remove(string path)
     {
+        bool found = false;
         foreach (var list in new[] { _pending, _fresh, _urgent })
             for (var n = list.First; n != null; n = n.Next)
-                if (string.Equals(n.Value.Path, path, StringComparison.OrdinalIgnoreCase)) { list.Remove(n); break; }
+                if (string.Equals(n.Value.Path, path, StringComparison.OrdinalIgnoreCase)) { list.Remove(n); found = true; break; }
+        return found;
     }
 
     /// <summary>
