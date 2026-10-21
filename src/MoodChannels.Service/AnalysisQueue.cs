@@ -39,6 +39,8 @@ sealed class AnalysisQueue
     readonly Queue<Job> _urgent = new();        // about to play: read before everything else
     readonly Queue<Job> _readyUrgent = new();   // …and read, taken before _ready
     readonly SemaphoreSlim _readerSignal = new(0);
+    readonly Timer _retry;                      // a file not stored (the database busy …): the work list made again later
+    static readonly TimeSpan RetryAfter = TimeSpan.FromMinutes(1);
     Task? _reader;
     string? _reading;                           // the file the reader is on
     long _readyBytes;
@@ -68,6 +70,11 @@ sealed class AnalysisQueue
     public AnalysisQueue(AnalysisStore store, Analyzer analyzer, Func<IReadOnlyList<MoodTrack>> tracks, Func<string?> ffmpeg, Action<string> log)
     {
         (_store, _analyzer, _tracks, _ffmpeg, _log) = (store, analyzer, tracks, ffmpeg, log);
+        _retry = new Timer(_ =>
+        {
+            try { if (!_stop.IsCancellationRequested) Refresh(); }
+            catch (Exception ex) { _log("analysis: work list not made again: " + ex.Message); }
+        });
     }
 
     /// <summary>Rebuilds the work list from the library and the cache.</summary>
@@ -270,12 +277,12 @@ sealed class AnalysisQueue
                     Entry entry;
                     try
                     {
-                        var f = _analyzer.Extract(job.Path!, _ffmpeg(), lowPriority: true);
+                        var f = _analyzer.Extract(job.Path!, _ffmpeg(), lowPriority: true, _stop.Token);
                         entry = _store.Analysed(job.Size, job.Mtime, f);
                         var p = _analyzer.Classify(f);                     // the channels at once: the page needs no work later
                         (entry.Model, entry.Ch) = (_analyzer.ModelVersion, p.Unclassifiable ? Array.Empty<int>() : p.Channels);
                     }
-                    catch (Exception ex)
+                    catch (Exception ex) when (ex is not OperationCanceledException)   // closing: not a failure of the file
                     {
                         entry = new Entry { Size = job.Size, Mtime = job.Mtime, Dsp = Dsp.DspFeatures.Version, Error = ex.Message, At = DateTime.UtcNow };
                     }
@@ -296,15 +303,17 @@ sealed class AnalysisQueue
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    // the store could not be written (disk full, database locked …): the file is left for the next
-                    // refresh; an exception left on this thread would end the player
+                    // the store could not be written (disk full, database locked …): the file is not taken as done (the
+                    // store keeps an entry only once written) and the work list is made again in a minute; an
+                    // exception left on this thread would end the player
                     lock (_lock)
                         if (_running.Remove(job.Path))
                         {
                             if (job.LoudOnly) _runningLoud--;
                             _readerSignal.Release();
                         }
-                    _log($"analysis: {job.Path}: {ex.Message}");
+                    _log($"analysis: {job.Path}: {ex.Message} (tried again in a minute)");
+                    try { _retry.Change(RetryAfter, Timeout.InfiniteTimeSpan); } catch (ObjectDisposedException) { }
                 }
             }
         }
@@ -314,8 +323,8 @@ sealed class AnalysisQueue
     /// <summary>Measures an entry's loudness and stores it (a failure is stored too: not tried again until the file changes).</summary>
     void Measure(Entry e)
     {
-        try { _store.SetLoudness(e, Loudness.Measure(e.Path, _ffmpeg(), lowPriority: true)); }
-        catch (Exception ex)
+        try { _store.SetLoudness(e, Loudness.Measure(e.Path, _ffmpeg(), lowPriority: true, _stop.Token)); }
+        catch (Exception ex) when (ex is not OperationCanceledException)   // closing: measured at the next start
         {
             _log($"loudness not measured: {e.Path}: {ex.Message}");
             _store.SetLoudness(e, null);
@@ -347,9 +356,11 @@ sealed class AnalysisQueue
         }
     }
 
+    /// <summary>Stops the workers and the reader; ffmpeg running for them is stopped too.</summary>
     public void Stop()
     {
         _stop.Cancel();
+        _retry.Dispose();
         Wake();
         foreach (var w in _workers.ToArray()) w.Join(TimeSpan.FromSeconds(5));
     }

@@ -62,21 +62,21 @@ public sealed class Clap : IDisposable
     /// </summary>
     public static float[] Decode(string path, string? ffmpeg = null, bool lowPriority = false, int maxSeconds = 900)
     {
-        var psi = new ProcessStartInfo(ffmpeg ?? Environment.GetEnvironmentVariable("FFMPEG") ?? "ffmpeg")
+        var psi = new ProcessStartInfo(Ffmpeg.Path(ffmpeg))
         {
             RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
         };
         foreach (var a in new[] { "-v", "error", "-nostdin", "-i", path, "-t", maxSeconds.ToString(), "-map", "0:a:0",
                                   "-ac", "1", "-ar", SampleRate.ToString(), "-f", "f32le", "-" })
             psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        if (lowPriority)
-            try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch (InvalidOperationException) { }   // already exited
-        var err = p.StandardError.ReadToEndAsync();
         using var ms = new MemoryStream();
-        p.StandardOutput.BaseStream.CopyTo(ms);
-        p.WaitForExit();
-        if (p.ExitCode != 0) throw new InvalidDataException("ffmpeg failed: " + err.Result.Trim());
+        var (err, exit) = Ffmpeg.Run(psi, p =>
+        {
+            var e = p.StandardError.ReadToEndAsync();
+            p.StandardOutput.BaseStream.CopyTo(ms);
+            return e.Result;
+        }, lowPriority);
+        if (exit != 0) throw new InvalidDataException("ffmpeg failed: " + err.Trim());
         var pcm = new float[ms.Length / 4];
         Buffer.BlockCopy(ms.GetBuffer(), 0, pcm, 0, pcm.Length * 4);
         return pcm;
