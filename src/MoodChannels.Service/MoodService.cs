@@ -28,8 +28,10 @@ public sealed class MoodService
     string? _modelError;
     Personalization? _personal;
 
-    // a track's channels after the listener's votes, worked out once per entry, model and personalisation version
-    sealed record Adjusted(int Version, string Model, int[] Base, int[] Channels);
+    // a track's channels after the listener's votes, worked out once per entry and model; valid while the channels
+    // it depends on keep their versions (Personalization.Versions), and dropped when the listener votes on the track.
+    // Probs: the channel model's probabilities, when they were needed (they change only with the model)
+    sealed record Adjusted(string Model, int[] Base, int[] Channels, (int Channel, int Version)[] Looked, double[]? Probs);
     readonly ConditionalWeakTable<Entry, Adjusted> _adjusted = new();
     Timer? _refreshSoon, _statusSoon, _upcomingSoon;
     Action? _onLibraryChanged, _onPlaybackChanged;   // kept to unsubscribe them (Stop)
@@ -221,12 +223,16 @@ public sealed class MoodService
     {
         var p = _personal;
         if (p == null || channels.Length == 0) return channels;
-        int version = p.Version;
         string model = _analyzer!.ModelVersion;
-        if (_adjusted.TryGetValue(e, out var a) && a.Version == version && a.Model == model && ReferenceEquals(a.Base, channels))
+        bool have = _adjusted.TryGetValue(e, out var a) && a.Model == model;
+        if (have && ReferenceEquals(a!.Base, channels) && a.Looked.All(l => p.VersionOf(l.Channel) == l.Version))
             return a.Channels;
-        var adjusted = p.Adjust(e, channels, _analyzer.Model, () => _analyzer.Classify(_store.Features(e)).Probabilities);
-        _adjusted.AddOrUpdate(e, new Adjusted(version, model, channels, adjusted));
+        // the versions before working it out: a training meanwhile leaves the result stale, never taken for current
+        var versions = p.Versions();
+        var looked = new HashSet<int>();
+        double[]? probs = have ? a!.Probs : null;
+        var adjusted = p.Adjust(e, channels, _analyzer.Model, () => probs ??= _analyzer.Classify(_store.Features(e)).Probabilities, looked);
+        _adjusted.AddOrUpdate(e, new Adjusted(model, channels, adjusted, looked.Select(c => (c, versions[c])).ToArray(), probs));
         return adjusted;
     }
 
@@ -467,6 +473,9 @@ public sealed class MoodService
         string? path = PathOf(id);
         if (path == null || channel < 0 || channel >= Channels.Count || _personal == null) return new { vote = 0, known = false };
         _store.SetVote(path, channel, Math.Sign(vote));
+        // the track itself: its vote decides it now (its probabilities are kept)
+        if (_store.Get(path) is { } voted && _adjusted.TryGetValue(voted, out var was))
+            _adjusted.AddOrUpdate(voted, was with { Looked = new[] { (channel, -1) } });
         _personal.Train(channel);
         _host.Log($"vote {Math.Sign(vote):+0;-0;0} on {Channels.Names[channel]}: {path}");
         return VoteState(id, channel);
