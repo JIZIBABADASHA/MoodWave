@@ -26,11 +26,11 @@ public static class Loudness
     /// <summary>
     /// Measures the first audio stream of a file; null when it has no level to match (silence: below the gate's
     /// -70 LUFS). Throws when ffmpeg cannot read it. <paramref name="ffmpeg"/> and <paramref name="lowPriority"/> as
-    /// in <see cref="Audio.Decode"/>.
+    /// in <see cref="Audio.Decode"/>, and like it stopped after a time limit or when <paramref name="cancel"/> is cancelled.
     /// </summary>
-    public static Result? Measure(string path, string? ffmpeg = null, bool lowPriority = false)
+    public static Result? Measure(string path, string? ffmpeg = null, bool lowPriority = false, CancellationToken cancel = default)
     {
-        var psi = new ProcessStartInfo(ffmpeg ?? Environment.GetEnvironmentVariable("FFMPEG") ?? "ffmpeg")
+        var psi = new ProcessStartInfo(Ffmpeg.Path(ffmpeg))
         {
             RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
         };
@@ -38,12 +38,8 @@ public static class Loudness
         foreach (var a in new[] { "-hide_banner", "-nostats", "-nostdin", "-i", path, "-map", "0:a:0", "-vn",
                                   "-af", "ebur128=peak=true:framelog=verbose", "-f", "null", "-" })
             psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        if (lowPriority)
-            try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch (InvalidOperationException) { }   // already exited
-        string err = p.StandardError.ReadToEnd();
-        p.WaitForExit();
-        if (p.ExitCode != 0) throw new InvalidDataException("ffmpeg failed: " + err.Trim());
+        var (err, exit) = Ffmpeg.Run(psi, p => p.StandardError.ReadToEnd(), lowPriority, cancel: cancel);
+        if (exit != 0) throw new InvalidDataException("ffmpeg failed: " + err.Trim());
         int at = err.LastIndexOf("Summary:", StringComparison.Ordinal);
         string summary = at < 0 ? "" : err[at..];
         var i = Integrated.Match(summary);

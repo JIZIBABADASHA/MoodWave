@@ -20,7 +20,7 @@ public sealed record TrackAnalysis(ChannelPrediction Prediction, TrackFeatures F
 /// <summary>
 /// The basic engine: audio file -> 16 kHz mono (ffmpeg) -> DSP descriptors -> channel model -> channels, BPM, key.
 /// No neural network. The two halves are separate so the features can be stored and the channels worked out again
-/// when the model changes (<see cref="Extract(string, string?, bool)"/>, then <see cref="Classify"/>).
+/// when the model changes (<see cref="Extract(string, string?, bool, CancellationToken)"/>, then <see cref="Classify"/>).
 /// Thread-safe: call it from as many threads as you like (each thread keeps its own DSP buffers).
 /// </summary>
 public sealed class Analyzer : IDisposable
@@ -48,8 +48,8 @@ public sealed class Analyzer : IDisposable
     }
 
     /// <summary>The features of an audio file (decoded with <paramref name="ffmpeg"/>, see <see cref="Audio.Decode"/>).</summary>
-    public TrackFeatures Extract(string path, string? ffmpeg = null, bool lowPriority = false) =>
-        Extract(Audio.Decode(path, ffmpeg: ffmpeg, lowPriority: lowPriority));
+    public TrackFeatures Extract(string path, string? ffmpeg = null, bool lowPriority = false, CancellationToken cancel = default) =>
+        Extract(Audio.Decode(path, ffmpeg: ffmpeg, lowPriority: lowPriority, cancel: cancel));
 
     /// <summary>The features of 16 kHz mono samples. Computed with <see cref="DspFeatures.Version"/>.</summary>
     public TrackFeatures Extract(float[] pcm)

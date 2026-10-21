@@ -371,14 +371,17 @@ sealed class AnalysisStore : IDisposable
 
     public Entry? Get(string path) { lock (_lock) return _entries.TryGetValue(path, out var e) ? e : null; }
 
-    /// <summary>Stores an entry (in memory and in the database at once). Its descriptors are not kept in memory.</summary>
+    /// <summary>
+    /// Stores an entry (in the database, then in memory: one the database did not take is not there, so the file is
+    /// analysed again). Its descriptors are not kept in memory.
+    /// </summary>
     public void Put(string path, Entry e)
     {
         e.Path = path;
         lock (_lock)
         {
-            _entries[path] = e;
             if (_db != null) Upsert(e);
+            _entries[path] = e;
         }
         e.F = null;
     }

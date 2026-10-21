@@ -16,6 +16,8 @@ sealed class ClapModel
 {
     const string Key = "clap";
     const int Buffer = 1 << 20;
+    /// <summary>A download that gets nothing for this long has stalled: it stops with an error (Download goes on from there).</summary>
+    static readonly TimeSpan Stall = TimeSpan.FromSeconds(60);
 
     sealed record FileSpec(string Path, long Bytes, string Sha256);
 
@@ -152,27 +154,40 @@ sealed class ClapModel
             await Copy(input, output, before, token);
             return;
         }
+        // no overall time limit (300 MB on a slow line takes long), but one for each wait: the answer, then each read
         using var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("MoodWave");
-        long have = File.Exists(part) ? new FileInfo(part).Length : 0;
-        if (have >= f.Bytes) { File.Delete(part); have = 0; }
-        var req = new HttpRequestMessage(HttpMethod.Get, _url!.TrimEnd('/') + "/" + Path.GetFileName(f.Path));
-        if (have > 0) req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(have, null);
-        using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, token);
-        resp.EnsureSuccessStatusCode();
-        bool resumed = have > 0 && resp.StatusCode == System.Net.HttpStatusCode.PartialContent;
-        await using var body = await resp.Content.ReadAsStreamAsync(token);
-        await using var file = new FileStream(part, resumed ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None, Buffer, FileOptions.Asynchronous);
-        await Copy(body, file, before + (resumed ? have : 0), token);
+        using var stalled = CancellationTokenSource.CreateLinkedTokenSource(token);
+        try
+        {
+            long have = File.Exists(part) ? new FileInfo(part).Length : 0;
+            if (have >= f.Bytes) { File.Delete(part); have = 0; }
+            var req = new HttpRequestMessage(HttpMethod.Get, _url!.TrimEnd('/') + "/" + Path.GetFileName(f.Path));
+            if (have > 0) req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(have, null);
+            stalled.CancelAfter(Stall);
+            using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, stalled.Token);
+            resp.EnsureSuccessStatusCode();
+            bool resumed = have > 0 && resp.StatusCode == System.Net.HttpStatusCode.PartialContent;
+            await using var body = await resp.Content.ReadAsStreamAsync(stalled.Token);
+            await using var file = new FileStream(part, resumed ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None, Buffer, FileOptions.Asynchronous);
+            await Copy(body, file, before + (resumed ? have : 0), stalled.Token, stalled);
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            throw new TimeoutException($"the download stalled (nothing for {Stall.TotalSeconds:0} s); start it again to go on");
+        }
     }
 
-    async Task Copy(Stream input, Stream output, long start, CancellationToken token)
+    /// <summary>Copies <paramref name="input"/>; with <paramref name="stalled"/> (its token), each read must come within <see cref="Stall"/>.</summary>
+    async Task Copy(Stream input, Stream output, long start, CancellationToken token, CancellationTokenSource? stalled = null)
     {
         var buf = new byte[Buffer];
         long done = start;
         int n;
-        while ((n = await input.ReadAsync(buf, token)) > 0)
+        while (true)
         {
+            stalled?.CancelAfter(Stall);
+            if ((n = await input.ReadAsync(buf, token)) <= 0) break;
             await output.WriteAsync(buf.AsMemory(0, n), token);
             done += n;
             Interlocked.Exchange(ref _done, done);
@@ -192,8 +207,11 @@ sealed class ClapModel
         return Convert.ToHexString(SHA256.HashData(s)).ToLowerInvariant();
     }
 
-    /// <summary>Deletes the downloaded files (the listener removed the AI data); a download running is stopped first.</summary>
-    public void Delete()
+    /// <summary>
+    /// Deletes the downloaded files (the listener removed the AI data); a download running is stopped first. Returns
+    /// false when they could not all be deleted (in use, no permission: the reason is in the status's error).
+    /// </summary>
+    public bool Delete()
     {
         Task? running;
         lock (_lock) { _cts?.Cancel(); running = _download; }
@@ -204,8 +222,17 @@ sealed class ClapModel
             _error = null;
             _done = 0;
         }
-        try { Directory.Delete(Path.Combine(_dir, Key), recursive: true); } catch (DirectoryNotFoundException) { }
+        bool deleted = true;
+        try { Directory.Delete(Path.Combine(_dir, Key), recursive: true); }
+        catch (DirectoryNotFoundException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            deleted = false;
+            lock (_lock) _error = "the model could not be deleted: " + ex.Message;
+            _log("CLAP model not deleted: " + ex.Message);
+        }
         Changed?.Invoke();
+        return deleted;
     }
 
     public object Status()

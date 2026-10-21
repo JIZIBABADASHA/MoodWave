@@ -32,6 +32,9 @@ public sealed class MoodService
     sealed record Adjusted(int Version, string Model, int[] Base, int[] Channels);
     readonly ConditionalWeakTable<Entry, Adjusted> _adjusted = new();
     Timer? _refreshSoon, _statusSoon, _upcomingSoon;
+    Action? _onLibraryChanged, _onPlaybackChanged;   // kept to unsubscribe them (Stop)
+    readonly object _life = new();                   // Init's wiring against Stop
+    volatile bool _stopped;
     string? _upcomingKey;
     int _statusQueued;
 
@@ -75,6 +78,13 @@ public sealed class MoodService
         });
     }
 
+    /// <summary>Sets a timer off (once, or every <paramref name="period"/> ms); nothing once Stop has disposed it.</summary>
+    static void Soon(Timer? timer, int due, int period = Timeout.Infinite)
+    {
+        try { timer?.Change(due, period); }
+        catch (ObjectDisposedException) { }
+    }
+
     /// <summary>A timer whose callback logs what goes wrong in it (an exception left on a timer's thread ends the player).</summary>
     Timer Guarded(string what, Action callback) => new(_ =>
     {
@@ -105,34 +115,40 @@ public sealed class MoodService
         host.Log(personal.LoadBuiltIn(Path.Combine(host.ModuleDir, "models", "basic", "tuning.json"), _store.FeatureNames));
         personal.UseBuiltIn = Setting("builtin", true);
         personal.Train();
-        // only now the module answers with channels: before, the page would get them without the listener's votes
-        _personal = personal;
-        _analyzer = analyzer;
-        _queue = new AnalysisQueue(_store, analyzer, () => host.Tracks, () => host.FfmpegPath, host.Log);
-        _queue.Changed += PostStatusSoon;
-        var queue = _queue;
-        var clapModel = _clapModel = new ClapModel(host.ModuleDir, host.DataDir, host.Log);
-        _clap = new ClapQueue(_store, () => host.Tracks, () => host.FfmpegPath, () => queue.Busy, () => clapModel.OnnxPath, host.ModuleDir, host.Log);
-        // while the model downloads, its progress goes to the page every second; once there, the work list is made
-        _downloadTick = Guarded("download progress", () => { PostStatusSoon(); if (!clapModel.Downloading) _downloadTick?.Change(Timeout.Infinite, Timeout.Infinite); });
-        clapModel.Changed += () =>
+        // the queues start and the player's events are taken under _life: Stop either comes first and nothing starts, or
+        // comes after and finds everything to stop
+        lock (_life)
         {
-            _downloadTick.Change(clapModel.Downloading ? 1000 : Timeout.Infinite, 1000);
-            if (clapModel.Ready) Task.Run(_clap.Refresh);
-            PostStatusSoon();
-        };
-        _clap.Changed += PostStatusSoon;
-        _queue.Analysed += _clap.Fresh;
-        var clapQueue = _clap;
-        _radio = new Radio(_store, () => clapQueue.Model, e => analyzer.Classify(_store.Features(e)).Bpm, host.Log);
-        host.TrackPlayed += OnPlayed;
-        _refreshSoon = Guarded("library refresh", () => { _queue.Refresh(); _clap.Refresh(); });
-        // a scan reports many changes in a row: rebuild the work list once things settle
-        host.LibraryChanged += () => _refreshSoon.Change(TimeSpan.FromSeconds(3), Timeout.InfiniteTimeSpan);
-        // what is about to play first: playback events come in bursts, look once they settle
-        _upcomingSoon = Guarded("upcoming", PrioritizeUpcoming);
-        host.PlaybackChanged += () => _upcomingSoon.Change(400, Timeout.Infinite);
-        _queue.Configure(Setting("enabled", true), Setting("threads", 1));
+            if (_stopped) return;                        // the player closed while the store was loading
+            // only now the module answers with channels: before, the page would get them without the listener's votes
+            _personal = personal;
+            _analyzer = analyzer;
+            _queue = new AnalysisQueue(_store, analyzer, () => host.Tracks, () => host.FfmpegPath, host.Log);
+            _queue.Changed += PostStatusSoon;
+            var queue = _queue;
+            var clapModel = _clapModel = new ClapModel(host.ModuleDir, host.DataDir, host.Log);
+            _clap = new ClapQueue(_store, () => host.Tracks, () => host.FfmpegPath, () => queue.Busy, () => clapModel.OnnxPath, host.ModuleDir, host.Log);
+            // while the model downloads, its progress goes to the page every second; once there, the work list is made
+            _downloadTick = Guarded("download progress", () => { PostStatusSoon(); if (!clapModel.Downloading) Soon(_downloadTick, Timeout.Infinite); });
+            clapModel.Changed += () =>
+            {
+                Soon(_downloadTick, clapModel.Downloading ? 1000 : Timeout.Infinite, 1000);
+                if (clapModel.Ready) Task.Run(_clap.Refresh);
+                PostStatusSoon();
+            };
+            _clap.Changed += PostStatusSoon;
+            _queue.Analysed += _clap.Fresh;
+            var clapQueue = _clap;
+            _radio = new Radio(_store, () => clapQueue.Model, e => analyzer.Classify(_store.Features(e)).Bpm, host.Log);
+            host.TrackPlayed += OnPlayed;
+            _refreshSoon = Guarded("library refresh", () => { _queue.Refresh(); _clap.Refresh(); });
+            // a scan reports many changes in a row: rebuild the work list once things settle
+            host.LibraryChanged += _onLibraryChanged = () => Soon(_refreshSoon, 3000);
+            // what is about to play first: playback events come in bursts, look once they settle
+            _upcomingSoon = Guarded("upcoming", PrioritizeUpcoming);
+            host.PlaybackChanged += _onPlaybackChanged = () => Soon(_upcomingSoon, 400);
+            _queue.Configure(Setting("enabled", true), Setting("threads", 1));
+        }
         _queue.Refresh();
         ConfigureClap();
         Task.Run(() => _radio.Ensure());                 // the embeddings in memory before a radio asks
@@ -144,6 +160,7 @@ public sealed class MoodService
     /// <summary>The advanced AI's settings to the CLAP queue (off with the analysis).</summary>
     void ConfigureClap()
     {
+        if (_stopped) return;                            // no download started as the player closes
         bool on = Setting("enabled", true) && Setting("ai", false);
         if (on) _clapModel?.Download();                 // turned on without the model: it is fetched first
         _clap?.Configure(on, AiSegments, Setting("aiGpu", true), Setting("aiThreads", 0));
@@ -494,7 +511,7 @@ public sealed class MoodService
 
     void PostStatusSoon()
     {
-        if (Interlocked.Exchange(ref _statusQueued, 1) == 0) _statusSoon?.Change(500, Timeout.Infinite);
+        if (Interlocked.Exchange(ref _statusQueued, 1) == 0) Soon(_statusSoon, 500);
     }
 
     public Task<object> HandleRpc(string method, JsonElement a)
@@ -596,9 +613,9 @@ public sealed class MoodService
                 {
                     _host.SetSetting("ai", false);
                     ConfigureClap();
-                    _clapModel?.Delete();
+                    bool model = _clapModel?.Delete() ?? true;
                     int n = _store.ForgetClap();
-                    _host.Log($"AI data deleted ({n} embeddings and the model)");
+                    _host.Log($"AI data deleted ({n} embeddings{(model ? " and the model" : "; the model could not be")})");
                     return Status();
                 });
             case "reanalyze":
@@ -702,6 +719,17 @@ public sealed class MoodService
 
     public void Stop()
     {
+        lock (_life)
+        {
+            _stopped = true;
+            if (_host != null)
+            {
+                _host.TrackPlayed -= OnPlayed;
+                if (_onLibraryChanged != null) _host.LibraryChanged -= _onLibraryChanged;
+                if (_onPlaybackChanged != null) _host.PlaybackChanged -= _onPlaybackChanged;
+            }
+        }
+        foreach (var t in new[] { _refreshSoon, _statusSoon, _upcomingSoon, _downloadTick }) t?.Dispose();
         _clapModel?.Cancel();
         _clap?.Stop();
         _queue?.Stop();
