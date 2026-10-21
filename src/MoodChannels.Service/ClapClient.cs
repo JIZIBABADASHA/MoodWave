@@ -21,9 +21,12 @@ sealed class ClapClient : IDisposable
     readonly Dictionary<long, TaskCompletionSource<Result>> _waiting = new();
     readonly TaskCompletionSource<string> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     long _next;
-    bool _exited;
+    bool _exited, _stopping;
 
-    /// <summary>The process ended (crashed, or was stopped); every track waiting got an error.</summary>
+    /// <summary>
+    /// The process ended: every track waiting got an error when it crashed, or was cancelled when it was stopped
+    /// (Dispose: the tracks were not at fault).
+    /// </summary>
     public event Action<ClapClient>? Exited;
 
     /// <summary>Where the model runs ("DirectML", "CPU"), once ready.</summary>
@@ -129,7 +132,10 @@ sealed class ClapClient : IDisposable
         }
         string why = "the CLAP process ended" + (_p.HasExited ? $" (exit {_p.ExitCode})" : "");
         _ready.TrySetException(new InvalidOperationException(why));
-        foreach (var t in waiting) t.TrySetException(new InvalidOperationException(why));
+        bool stopped;
+        lock (_lock) stopped = _stopping;
+        foreach (var t in waiting)
+            if (stopped) t.TrySetCanceled(); else t.TrySetException(new InvalidOperationException(why));
         Exited?.Invoke(this);
     }
 
@@ -138,6 +144,7 @@ sealed class ClapClient : IDisposable
     {
         lock (_lock)
         {
+            _stopping = true;
             if (!_exited) try { _p.StandardInput.Close(); } catch (Exception) { }
         }
         try { if (!_p.WaitForExit(3000)) _p.Kill(); } catch (Exception) { }

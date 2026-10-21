@@ -49,8 +49,9 @@ new Thread(() =>
 
 Clap? clap = null;
 string? ffmpeg = null;
-// decoded tracks, at most one waiting for the model
-var decoded = new BlockingCollection<(JsonNode Job, float[]? Pcm, string? Error, double Ms)>(1);
+// decoded tracks: two at most (the one with the model, the next being decoded or waiting for it), each up to 170 MB
+var decoded = new BlockingCollection<(JsonNode Job, float[]? Pcm, string? Error, double Ms)>();
+var slots = new SemaphoreSlim(2);
 new Thread(() =>
 {
     foreach (var m in inbox.GetConsumingEnumerable())
@@ -68,6 +69,7 @@ new Thread(() =>
                 break;
             case "embed":
             {
+                slots.Wait();                               // given back once the model is done with the track
                 var sw = Stopwatch.StartNew();
                 try
                 {
@@ -84,10 +86,10 @@ new Thread(() =>
 foreach (var (job, pcm, error, decodeMs) in decoded.GetConsumingEnumerable())
 {
     var id = job["id"]!.DeepClone();
-    if (clap == null) { Send(new { id, error = "not initialised" }); continue; }
-    if (pcm == null) { Send(new { id, error }); continue; }
     try
     {
+        if (clap == null) { Send(new { id, error = "not initialised" }); continue; }
+        if (pcm == null) { Send(new { id, error }); continue; }
         int windows = ClapWindows.Count(pcm.Length);
         if (windows == 0) { Send(new { id, windows }); continue; }
         int have = (int?)job["have"] ?? 0;
@@ -102,4 +104,5 @@ foreach (var (job, pcm, error, decodeMs) in decoded.GetConsumingEnumerable())
         });
     }
     catch (Exception ex) { Send(new { id, error = ex.Message }); }
+    finally { slots.Release(); }
 }

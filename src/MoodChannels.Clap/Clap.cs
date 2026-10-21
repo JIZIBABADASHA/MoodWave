@@ -69,16 +69,14 @@ public sealed class Clap : IDisposable
         foreach (var a in new[] { "-v", "error", "-nostdin", "-i", path, "-t", maxSeconds.ToString(), "-map", "0:a:0",
                                   "-ac", "1", "-ar", SampleRate.ToString(), "-f", "f32le", "-" })
             psi.ArgumentList.Add(a);
-        using var ms = new MemoryStream();
+        float[] pcm = Array.Empty<float>();
         var (err, exit) = Ffmpeg.Run(psi, p =>
         {
             var e = p.StandardError.ReadToEndAsync();
-            p.StandardOutput.BaseStream.CopyTo(ms);
+            pcm = Audio.ReadPcm(p.StandardOutput.BaseStream);
             return e.Result;
         }, lowPriority);
         if (exit != 0) throw new InvalidDataException("ffmpeg failed: " + err.Trim());
-        var pcm = new float[ms.Length / 4];
-        Buffer.BlockCopy(ms.GetBuffer(), 0, pcm, 0, pcm.Length * 4);
         return pcm;
     }
 
