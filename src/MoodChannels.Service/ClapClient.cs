@@ -41,7 +41,13 @@ sealed class ClapClient : IDisposable
             StandardInputEncoding = new UTF8Encoding(false), StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8,
         };
         _p = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        _p.OutputDataReceived += (_, e) => { if (e.Data != null) OnLine(e.Data); };
+        // an exception left in this handler would end the process this runs in (on Windows: the player)
+        _p.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data == null) return;
+            try { OnLine(e.Data); }
+            catch (Exception ex) { log($"clap: a line not understood ({ex.Message}): {(e.Data.Length > 200 ? e.Data[..200] + "…" : e.Data)}"); }
+        };
         _p.ErrorDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) log("clap: " + e.Data); };
         _p.Exited += (_, _) => OnExit();
         _p.Start();
@@ -99,25 +105,30 @@ sealed class ClapClient : IDisposable
 
     void OnLine(string line)
     {
-        JsonNode? m;
-        try { m = JsonNode.Parse(line); } catch (Exception) { return; }
-        if (m == null) return;
+        if (JsonNode.Parse(line) is not JsonObject m) throw new InvalidDataException("not a JSON object");
         if (m["ready"] is JsonNode ready)
         {
             if ((bool)ready) _ready.TrySetResult((string?)m["device"] ?? "CPU");
             else _ready.TrySetException(new InvalidOperationException((string?)m["error"] ?? "the model did not load"));
             return;
         }
-        if (m["id"] is not JsonNode idNode) return;
-        long id = (long)idNode;
+        if (m["id"] is not JsonValue idNode || !idNode.TryGetValue(out long id)) throw new InvalidDataException("no id");
         TaskCompletionSource<Result>? tcs;
         lock (_lock) if (_waiting.Remove(id, out tcs) == false) return;
-        if ((string?)m["error"] is string error) { tcs!.TrySetResult(new Result(0, new(), error, 0, 0)); return; }
-        var embs = new List<(int, float[])>();
-        if (m["embs"] is JsonArray list)
-            foreach (var x in list)
-                embs.Add(((int)x![0]!, MemoryMarshal.Cast<byte, float>(Convert.FromBase64String((string)x[1]!)).ToArray()));
-        tcs!.TrySetResult(new Result((int?)m["windows"] ?? 0, embs, null, (double?)m["decode_ms"] ?? 0, (double?)m["model_ms"] ?? 0));
+        try
+        {
+            if ((string?)m["error"] is string error) { tcs!.TrySetResult(new Result(0, new(), error, 0, 0)); return; }
+            var embs = new List<(int, float[])>();
+            if (m["embs"] is JsonArray list)
+                foreach (var x in list)
+                    embs.Add(((int)x![0]!, MemoryMarshal.Cast<byte, float>(Convert.FromBase64String((string)x[1]!)).ToArray()));
+            tcs!.TrySetResult(new Result((int?)m["windows"] ?? 0, embs, null, (double?)m["decode_ms"] ?? 0, (double?)m["model_ms"] ?? 0));
+        }
+        catch (Exception ex)
+        {
+            // the track's answer cannot be read: it fails (instead of waiting for ever, holding one of the tracks in flight)
+            tcs!.TrySetResult(new Result(0, new(), "the CLAP process's answer could not be read: " + ex.Message, 0, 0));
+        }
     }
 
     void OnExit()

@@ -525,8 +525,9 @@ public sealed class MoodService
 
     public Task<object> HandleRpc(string method, JsonElement a)
     {
+        // a number that is not a whole one (or out of range) counts as missing: GetInt32 would throw, for "set" right to the player
         int Int(string name, int fallback) =>
-            a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : fallback;
+            a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out int i) ? i : fallback;
         string? Str(string name) =>
             a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         bool? Bool(string name) =>
