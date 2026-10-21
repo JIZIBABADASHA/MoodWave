@@ -14,5 +14,6 @@
   <ItemGroup>
     <ProjectReference Include="..\MoodChannels.Core\MoodChannels.Core.csproj" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+    <InternalsVisibleTo Include="MoodChannels.Tests" />
   </ItemGroup>
 </Project>

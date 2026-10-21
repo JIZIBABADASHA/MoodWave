@@ -28,7 +28,7 @@ sealed class Personalization
     const double C = 0.1;                       // regularisation (as scikit-learn's C): small data must not swing a channel
 
     /// <summary>One channel's model: p(does not belong) for a track's descriptors.</summary>
-    sealed class Model
+    internal sealed class Model
     {
         public required double[] Fill, Mean, Scale, W;
         public required double B;
@@ -50,12 +50,20 @@ sealed class Personalization
     readonly Dictionary<int, Model> _builtIn = new();
     readonly Dictionary<int, (int Up, int Down)> _counts = new();
     readonly object _lock = new();
+    readonly object _training = new();          // one training at a time: a later one never overwritten by an earlier one
+    readonly int[] _versions = new int[Channels.Count];
     bool _useBuiltIn = true;
 
     public Personalization(AnalysisStore store) => _store = store;
 
-    /// <summary>Changes on every training: results worked out with another version are stale.</summary>
-    public int Version { get; private set; }
+    /// <summary>
+    /// Each channel's version: changes when what takes tracks out of it changes (its model, or the built-in one in
+    /// use). A track's adjustment stays valid while the channels it looked at keep theirs; the listener's own vote on
+    /// a track changes no version (the caller drops that track's adjustment).
+    /// </summary>
+    public int[] Versions() { lock (_lock) return (int[])_versions.Clone(); }
+
+    public int VersionOf(int channel) { lock (_lock) return _versions[channel]; }
 
     /// <summary>The built-in tuning's file format (tuning.json "format").</summary>
     const int TuningFormat = 1;
@@ -96,7 +104,12 @@ sealed class Personalization
         get { lock (_lock) return _useBuiltIn; }
         set
         {
-            lock (_lock) { if (_useBuiltIn == value) return; _useBuiltIn = value; }
+            lock (_lock)
+            {
+                if (_useBuiltIn == value) return;
+                _useBuiltIn = value;
+                foreach (int ch in _builtIn.Keys) _versions[ch]++;   // the built-in model in use or not, whatever training gives
+            }
             Train();
         }
     }
@@ -119,19 +132,22 @@ sealed class Personalization
     /// <summary>Trains the models of these channels (default: all) from the stored votes.</summary>
     public void Train(params int[] channels)
     {
-        foreach (int ch in channels.Length > 0 ? channels : Enumerable.Range(0, Channels.Count).ToArray())
-        {
-            var rows = Rows(ch);
-            int up = rows.Count(r => r.Vote > 0), down = rows.Count(r => r.Vote < 0);
-            Model? m = up >= MinEach && down >= MinEach
-                ? Fit(rows.Select(r => r.F).ToArray(), rows.Select(r => r.Vote < 0 ? 1.0 : 0.0).ToArray(), Prior(ch)) : null;
-            lock (_lock)
+        lock (_training)
+            foreach (int ch in channels.Length > 0 ? channels : Enumerable.Range(0, Channels.Count).ToArray())
             {
-                _counts[ch] = (up, down);
-                if (m != null) _models[ch] = m; else _models.Remove(ch);
+                var rows = Rows(ch);
+                int up = rows.Count(r => r.Vote > 0), down = rows.Count(r => r.Vote < 0);
+                Model? m = up >= MinEach && down >= MinEach
+                    ? Fit(rows.Select(r => r.F).ToArray(), rows.Select(r => r.Vote < 0 ? 1.0 : 0.0).ToArray(), Prior(ch)) : null;
+                lock (_lock)
+                {
+                    _counts[ch] = (up, down);
+                    bool had = _models.Remove(ch);
+                    if (m != null) _models[ch] = m;
+                    // without a model before or after (too few votes) nothing but the voted track changes
+                    if (had || m != null) _versions[ch]++;
+                }
             }
-        }
-        lock (_lock) Version++;
     }
 
     /// <summary>
@@ -175,13 +191,14 @@ sealed class Personalization
     }
 
     /// <summary>Whether the listener takes this track out of this channel (their vote, else the channel's model).</summary>
-    public bool Rejects(Entry e, int channel)
+    public bool Rejects(Entry e, int channel, ISet<int>? looked = null, Func<float[]?>? features = null)
     {
+        looked?.Add(channel);
         int vote = _store.Vote(e.Path, channel);
         if (vote != 0) return vote < 0;
         var m = ModelFor(channel);
         if (m == null) return false;
-        var f = _store.FeatureVector(e);
+        var f = features != null ? features() : _store.FeatureVector(e);
         return f != null && m.NotBelong(f) >= Threshold;
     }
 
@@ -194,24 +211,31 @@ sealed class Personalization
 
     /// <summary>
     /// The track's channels after the listener's votes and models. <paramref name="probabilities"/> gives the channel
-    /// model's probabilities, asked only when a track must go to another time zone or mood.
+    /// model's probabilities, asked only when a track must go to another time zone or mood. <paramref name="looked"/>
+    /// gets the channels the answer depends on (see <see cref="Versions"/>).
     /// </summary>
-    public int[] Adjust(Entry e, int[] channels, ChannelModel model, Func<double[]> probabilities)
+    public int[] Adjust(Entry e, int[] channels, ChannelModel model, Func<double[]> probabilities, ISet<int>? looked = null)
     {
+        foreach (int c in channels) looked?.Add(c);
         if (channels.Length == 0 || !Touches(e, channels)) return channels;
-        var keep = channels.Where(c => !Rejects(e, c)).ToList();
+        // the descriptors read once (from the database) for all the channels looked at
+        float[]? f = null;
+        bool read = false;
+        float[]? Features() { if (!read) (f, read) = (_store.FeatureVector(e), true); return f; }
+        bool Rejects(int c) => this.Rejects(e, c, looked, Features);
+        var keep = channels.Where(c => !Rejects(c)).ToList();
         if (keep.Count == channels.Length) return channels;
         double[]? p = null;
         if (!keep.Any(Channels.IsTimeZone) && channels.Any(Channels.IsTimeZone))
         {
             p ??= probabilities();
-            int z = model.ZoneOrder(p).FirstOrDefault(c => !channels.Contains(c) && !Rejects(e, c), -1);
+            int z = model.ZoneOrder(p).FirstOrDefault(c => !channels.Contains(c) && !Rejects(c), -1);
             if (z >= 0) keep.Insert(0, z);
         }
         if (!keep.Any(Channels.IsMood) && channels.Any(Channels.IsMood))
         {
             p ??= probabilities();
-            int m = model.MoodOrder(p).FirstOrDefault(c => !channels.Contains(c) && !Rejects(e, c), -1);
+            int m = model.MoodOrder(p).FirstOrDefault(c => !channels.Contains(c) && !Rejects(c), -1);
             if (m >= 0) keep.Add(m);
         }
         return keep.ToArray();
@@ -222,7 +246,7 @@ sealed class Personalization
     /// <paramref name="prior"/> (a built-in model of the channel): its standardisation, and the weights pulled towards
     /// its weights instead of towards zero.
     /// </summary>
-    static Model Fit(float[][] rows, double[] y, Model? prior)
+    internal static Model Fit(float[][] rows, double[] y, Model? prior)
     {
         int n = rows.Length, d = prior?.W.Length ?? rows.Max(r => r.Length);
         var fill = new double[d];
@@ -253,6 +277,7 @@ sealed class Personalization
         var w0 = new double[k];                              // what the weights are pulled towards
         if (prior != null) { Array.Copy(prior.W, w0, d); w0[d] = prior.B; }
         var w = (double[])w0.Clone();
+        double loss = Loss(x, y, w, w0, d);
         for (int it = 0; it < 50; it++)
         {
             var g = new double[k];
@@ -273,12 +298,44 @@ sealed class Personalization
                 for (int b = 0; b < a; b++) h[a, b] = h[b, a];
                 if (a < d) { g[a] += (w[a] - w0[a]) / C; h[a, a] += 1 / C; }   // the intercept is not penalised
             }
+            // …but when every probability is 0 or 1 (r = 0), its curvature is 0 too: a trace keeps the system solvable
+            h[d, d] += 1e-9 * n;
             var step = Solve(h, g);
+            if (!step.All(double.IsFinite)) break;
+            // the full Newton step, halved until the loss goes down: far from the solution (descriptors many of a
+            // built-in model's scales away, its probabilities 0 or 1) the full step overshoots, and the weights would
+            // end up infinite or NaN, the channel's model with them
+            double t = 1, next = double.NaN;
+            var tried = new double[k];
+            for (int half = 0; half < 40; half++, t /= 2)
+            {
+                for (int a = 0; a < k; a++) tried[a] = w[a] - t * step[a];
+                next = Loss(x, y, tried, w0, d);
+                if (next <= loss) break;
+            }
+            if (!(next <= loss)) break;                     // no step lowers it: as good as it gets
             double largest = 0;
-            for (int a = 0; a < k; a++) { w[a] -= step[a]; largest = Math.Max(largest, Math.Abs(step[a])); }
+            for (int a = 0; a < k; a++) largest = Math.Max(largest, Math.Abs(w[a] - tried[a]));
+            (w, tried, loss) = (tried, w, next);
             if (largest < 1e-10) break;
         }
         return new Model { Fill = fill, Mean = mean, Scale = scale, W = w[..d], B = w[d] };
+    }
+
+    /// <summary>What Fit minimises: the log loss, plus the weights' distance from <paramref name="w0"/> (not the intercept's) / 2C.</summary>
+    static double Loss(double[,] x, double[] y, double[] w, double[] w0, int d)
+    {
+        int n = y.Length, k = w.Length;
+        double sum = 0;
+        for (int i = 0; i < n; i++)
+        {
+            double z = 0;
+            for (int j = 0; j < k; j++) z += x[i, j] * w[j];
+            // log(1 + e^z) − y·z, without overflow for large |z|
+            sum += (z > 0 ? z + Math.Log(1 + Math.Exp(-z)) : Math.Log(1 + Math.Exp(z))) - y[i] * z;
+        }
+        for (int a = 0; a < d; a++) sum += (w[a] - w0[a]) * (w[a] - w0[a]) / (2 * C);
+        return sum;
     }
 
     static double Value(float[] r, int j, double[] fill) => j < r.Length && float.IsFinite(r[j]) ? r[j] : fill[j];
