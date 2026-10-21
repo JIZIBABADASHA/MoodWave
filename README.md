@@ -56,6 +56,8 @@ src/MoodChannels.Cli/bin/Release/net8.0/moodchannels models/basic --workers 8 --
 
 One JSON line per track: `channels`, `bpm`, `key`, per-channel `probabilities`, `model` (model version).
 
+Unit tests (no ffmpeg, models or MIKU needed; CI runs them on Windows, macOS and Linux): `dotnet test tests/MoodChannels.Tests`.
+
 ## Library use
 
 ```csharp

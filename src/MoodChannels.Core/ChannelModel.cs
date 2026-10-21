@@ -33,7 +33,7 @@ public sealed class ChannelModel : IDisposable
     readonly double[] _zoneWeights;
     readonly double[]? _moodWeights;
     readonly double _secondMood;
-    readonly double[] _moodThresholds;
+    readonly double[]? _moodThresholds;     // used only without mood_weights
     readonly double[] _bpmFactors;
     readonly string _bpmInput;
 
@@ -62,8 +62,9 @@ public sealed class ChannelModel : IDisposable
         _zoneWeights = PerChannel(root, "time_zone_weights", 0, Channels.TimeZoneCount) ?? Enumerable.Repeat(1.0, 5).ToArray();
         _moodWeights = PerChannel(root, "mood_weights", Channels.FirstMood, Channels.MoodCount);
         _secondMood = root.TryGetProperty("second_mood_threshold", out var t2) ? t2.GetDouble() : double.PositiveInfinity;
-        _moodThresholds = PerChannel(root, "mood_thresholds", Channels.FirstMood, Channels.MoodCount)
-                          ?? throw new InvalidDataException("model.json has neither mood_weights nor mood_thresholds");
+        _moodThresholds = PerChannel(root, "mood_thresholds", Channels.FirstMood, Channels.MoodCount);
+        if (_moodWeights == null && _moodThresholds == null)
+            throw new InvalidDataException("model.json has neither mood_weights nor mood_thresholds");
         var bpm = root.GetProperty("bpm_octave");
         _bpmFactors = bpm.GetProperty("factors").EnumerateArray().Select(e => e.GetDouble()).ToArray();
         _bpmInput = bpm.GetProperty("input_bpm").GetString()!;
@@ -119,7 +120,7 @@ public sealed class ChannelModel : IDisposable
             return moods.ToArray();
         }
         for (int j = 0; j < Channels.MoodCount; j++)
-            if (p[Channels.FirstMood + j] >= _moodThresholds[j]) moods.Add(Channels.FirstMood + j);
+            if (p[Channels.FirstMood + j] >= _moodThresholds![j]) moods.Add(Channels.FirstMood + j);
         if (moods.Count == 0) moods.Add(Channels.FirstMood + Enumerable.Range(0, Channels.MoodCount).MaxBy(j => p[Channels.FirstMood + j]));
         return moods.ToArray();
     }
