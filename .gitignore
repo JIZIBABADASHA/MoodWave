@@ -9,3 +9,5 @@ models/**/model.json
 miku.local.props
 # built by miku/build-helper.sh (self-contained .NET, ~35 MB each)
 miku/bin/
+# .NET SDK downloaded by miku/pack-mac.sh when none is installed
+.tools/

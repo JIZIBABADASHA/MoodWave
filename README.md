@@ -99,8 +99,9 @@ the Smart Playlist.
   `git submodule add https://github.com/cychang-ykc/MoodWave.git Extensions/MoodWave`. MIKU's own builds then build
   and bundle the module; the model files are fetched from the releases by the first build:
   - Windows (MIKU's build / publish): needs only the .NET 8 SDK; the module lands in `ext\moodchannels\`.
-  - macOS (`mac/build/build.sh`, on a Mac): runs `miku/pack-mac.sh`, which needs the .NET 8 SDK (it builds
-    `moodwave-helper` and `moodwave-clap` for arm64 and x64, about 4 minutes the first time) and `python3`.
+  - macOS (`mac/build/build.sh`, on a Mac): runs `miku/pack-mac.sh`, which builds `moodwave-helper` and
+    `moodwave-clap` for arm64 and x64 (about 4 minutes the first time) with the .NET 8 SDK on the PATH or, without
+    one, the SDK it downloads into `.tools/`; macOS 11+ with the Xcode command line tools (`python3`) needs nothing else.
 - While this folder is only *linked* there (a junction), MSBuild sees its real path: put the MIKU repository's path in
   `miku.local.props` (not committed) as `<MikuRoot>…\</MikuRoot>`.
 - Deploy without rebuilding MIKU: `dotnet msbuild src/MoodChannels.Extension -t:MikuDeploy -p:Configuration=Release -p:MikuOutDir=<MIKU program folder>\`
