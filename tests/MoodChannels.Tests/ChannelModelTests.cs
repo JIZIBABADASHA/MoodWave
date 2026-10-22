@@ -9,11 +9,11 @@ public class ChannelModelTests : IDisposable
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 
     /// <summary>A model directory: every model a tree file without trees (each class its base margin only).</summary>
-    void Write(bool weights, bool thresholds)
+    internal static void Write(string dir, bool weights, bool thresholds)
     {
         void Trees(string name, bool softmax, int classes)
         {
-            using var w = new BinaryWriter(File.Create(Path.Combine(_dir, name + ".trees")));
+            using var w = new BinaryWriter(File.Create(Path.Combine(dir, name + ".trees")));
             w.Write("MCTR"u8.ToArray());
             w.Write(1); w.Write(softmax ? 1 : 0); w.Write(classes);
             int k = softmax ? classes : 1;
@@ -36,7 +36,7 @@ public class ChannelModelTests : IDisposable
         };
         if (weights) { json["mood_weights"] = PerMood(1); json["second_mood_threshold"] = 0.5; }
         if (thresholds) json["mood_thresholds"] = PerMood(0.5);
-        File.WriteAllText(Path.Combine(_dir, "model.json"), json.ToJsonString());
+        File.WriteAllText(Path.Combine(dir, "model.json"), json.ToJsonString());
     }
 
     [Theory]
@@ -45,7 +45,7 @@ public class ChannelModelTests : IDisposable
     [InlineData(false, true)]                               // an older one: mood_thresholds alone
     public void Loads_with_either_mood_rule(bool weights, bool thresholds)
     {
-        Write(weights, thresholds);
+        Write(_dir, weights, thresholds);
         var p = new ChannelModel(_dir).Predict(new Dictionary<string, double> { ["dsp.bpm"] = 120 });
         Assert.False(p.Unclassifiable);
         Assert.Equal(4, p.TimeZone);                        // the largest base margin, all zone weights 1
@@ -56,7 +56,7 @@ public class ChannelModelTests : IDisposable
     [Fact]
     public void Refuses_a_model_without_a_mood_rule()
     {
-        Write(false, false);
+        Write(_dir, false, false);
         Assert.Throws<InvalidDataException>(() => new ChannelModel(_dir));
     }
 }
