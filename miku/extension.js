@@ -20,6 +20,7 @@ let nextId = 1;
 const waiting = new Map();                              // rpc id → resolve
 const loudness = new Map();                             // path → [lufs | null (silent), true peak]
 let restarts = 0, stopping = false, libTimer = null, lastUpcoming = '';
+let listening = false;                                  // MIKU's events subscribed to (once: MIKU has no way to unsubscribe)
 let readyAt = 0;                                        // when the helper last said it was ready
 const STABLE = 10 * 60 * 1000;                          // a helper that ran this long before ending: its restarts start over
 
@@ -61,6 +62,7 @@ function sendUpcoming() {
 function onLine(line) {
   let m;
   try { m = JSON.parse(line); } catch { host.log('helper: not JSON: ' + line.slice(0, 200)); return; }
+  if (!m || typeof m !== 'object') { host.log('helper: not a message: ' + line.slice(0, 200)); return; }
   if (m.id != null && waiting.has(m.id)) {
     const done = waiting.get(m.id);
     waiting.delete(m.id);
@@ -125,14 +127,17 @@ module.exports = {
     stopping = false;
     startHelper();
     sendTracks();
+    // started again after a stop: the events subscribed to then still come (to the host passed now), not twice
+    if (listening) return;
+    listening = true;
     // a scan changes the library many times in a row: send it once things settle
-    if (typeof host.onLibraryChanged === 'function')
-      host.onLibraryChanged(() => { clearTimeout(libTimer); libTimer = setTimeout(sendTracks, 3000); });
-    if (typeof host.onPlaybackChanged === 'function')
-      host.onPlaybackChanged(() => setTimeout(sendUpcoming, 400));
+    if (typeof h.onLibraryChanged === 'function')
+      h.onLibraryChanged(() => { if (stopping) return; clearTimeout(libTimer); libTimer = setTimeout(sendTracks, 3000); });
+    if (typeof h.onPlaybackChanged === 'function')
+      h.onPlaybackChanged(() => { if (!stopping) setTimeout(sendUpcoming, 400); });
     // what played, for the radio and the Smart Playlist (plays, quick skips); an older MIKU has no onTrackPlayed
-    if (typeof host.onTrackPlayed === 'function')
-      host.onTrackPlayed(p => send({ op: 'played', id: p.id, seconds: p.seconds, duration: p.duration, skipped: !!p.skipped, stopped: !!p.stopped, source: p.source || null }));
+    if (typeof h.onTrackPlayed === 'function')
+      h.onTrackPlayed(p => send({ op: 'played', id: p.id, seconds: p.seconds, duration: p.duration, skipped: !!p.skipped, stopped: !!p.stopped, source: p.source || null }));
   },
 
   stop() {
