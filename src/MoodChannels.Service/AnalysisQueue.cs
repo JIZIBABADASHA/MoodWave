@@ -278,6 +278,21 @@ sealed class AnalysisQueue
                         Changed?.Invoke();
                         continue;
                     }
+                    // analysed meanwhile: a Refresh that read the store just before a worker stored this file puts it in
+                    // the list again; counted as that Refresh did not (it set the counts without it)
+                    var done = _store.Get(job.Path);
+                    if (AnalysisStore.Current(done, job.Size, job.Mtime))
+                    {
+                        lock (_lock)
+                        {
+                            _running.Remove(job.Path);
+                            _readerSignal.Release();
+                            if (done!.Ok) { _ok++; _loudDone++; } else _failed++;
+                            _loudTodo--;
+                        }
+                        Changed?.Invoke();
+                        continue;
+                    }
                     Entry entry;
                     try
                     {

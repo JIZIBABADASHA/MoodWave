@@ -50,7 +50,9 @@ sealed class Radio
     int _rows;
     string? _indexModel;
     readonly List<(DateTime At, float[] Vec)> _skips = new();
-    readonly Dictionary<string, double> _bpms = new(StringComparer.OrdinalIgnoreCase);
+    readonly Dictionary<string, (Entry E, double Bpm)> _bpms = new(StringComparer.OrdinalIgnoreCase);   // by the store entry it was worked out from
+    int _forgets;                                   // Forget calls: an Ensure reading the store meanwhile drops what it read
+    List<(ClapEntry E, float[] Sum)>? _added;       // embeddings stored while an Ensure reads the store: put in after it
 
     public Radio(AnalysisStore store, Func<string?> model, Func<Entry, double> bpm, Action<string> log)
     {
@@ -65,15 +67,29 @@ sealed class Radio
     public void Ensure()
     {
         string? model = _model();
-        lock (_lock) if (model == null || model == _indexModel) return;
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        var all = _store.AllClap(model!);
+        int forgets;
         lock (_lock)
         {
+            if (model == null || model == _indexModel) return;
+            forgets = _forgets;
+            _added ??= new();
+        }
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        List<(ClapEntry, float[])> all;
+        try { all = _store.AllClap(model!); }
+        catch { lock (_lock) _added = null; throw; }
+        lock (_lock)
+        {
+            var added = _added;
+            _added = null;
+            // forgotten while read (the AI data deleted): what was read may be gone from the store; read again next time
+            if (forgets != _forgets) return;
+            if (_indexModel == model) return;           // another Ensure put them in first (and what came since)
             _row.Clear();
             _rows = 0;
             _vec = new float[Math.Max(1024, all.Count + 256) * Dim];
             foreach (var (e, sum) in all) Put(e.Path, sum);
+            foreach (var (e, sum) in added ?? new()) if (e.Model == model) Put(e.Path, sum);
             _indexModel = model;
         }
         _log($"radio: {all.Count} embeddings in memory ({sw.ElapsedMilliseconds} ms)");
@@ -92,12 +108,19 @@ sealed class Radio
             _vec = Array.Empty<float>();
             _indexModel = null;
             _skips.Clear();
+            _bpms.Clear();
+            _forgets++;
+            _added = null;
         }
     }
 
     void Add(ClapEntry e, float[] sum)
     {
-        lock (_lock) if (e.Model == _indexModel) Put(e.Path, sum);
+        lock (_lock)
+        {
+            if (e.Model == _indexModel) Put(e.Path, sum);
+            else _added?.Add((e, sum));
+        }
     }
 
     /// <summary>A track's embedding as a unit vector (the mean of its windows has the sum's direction).</summary>
@@ -371,13 +394,14 @@ sealed class Radio
 
     double Bpm(MoodTrack t)
     {
-        lock (_lock) if (_bpms.TryGetValue(t.Path, out var b)) return b;
         var e = _store.Get(t.Path);
+        if (e is not { Ok: true }) return 0;
+        // kept with the entry it came from: a file analysed again (changed, a new analysis version) is worked out again
+        lock (_lock) if (_bpms.TryGetValue(t.Path, out var b) && ReferenceEquals(b.E, e)) return b.Bpm;
         double bpm = 0;
-        if (e is { Ok: true })
-            try { bpm = _bpm(e); } catch (Exception) { }
+        try { bpm = _bpm(e); } catch (Exception) { }
         if (double.IsNaN(bpm)) bpm = 0;
-        lock (_lock) _bpms[t.Path] = bpm;
+        lock (_lock) _bpms[t.Path] = (e, bpm);
         return bpm;
     }
 
