@@ -109,7 +109,6 @@
       }, '刪除 AI 資料'), h('span', { class: 'mc-line mc-dim mc-size' }, size));
     }
     box.append(acts);
-    if (MC.failBox) box.append(MC.failBox);
   }
 
   const drawProgress = () => { drawBasic(); drawAi(); drawManage(); };
@@ -358,6 +357,11 @@
     img.src = url;
   }
 
+  /** The now-playing page (the cover, the lyrics and MoodWave's wheel or label), from the bar's band or radio label. */
+  function openNowPlaying() {
+    if (!NowPlaying.open) NowPlaying.show();
+  }
+
   /** The bar's channel band. One element for the session: MIKU empties the slot on every new queue and it is put back. */
   function band() {
     if (MC.band) return MC.band;
@@ -365,7 +369,10 @@
     const down = h('button', { class: 'mc-band-step down', html: icon('down'), onclick: () => step(1) });
     const roll = h('span', { class: 'mc-roll' });             // the mark and the name roll as one
     const v = voteButtons();                                 // 👍 / 👎 right of the name
-    MC.band = h('div', { class: 'mc-band' }, up, h('span', { class: 'mc-band-name' }, roll), down, v.votes);
+    // a click on the band (not on ▲▼ or 👍 / 👎) opens the now-playing page, as the radio's label does
+    const name = h('span', { class: 'mc-band-name', role: 'link', tabindex: 0, title: '打開播放畫面',
+      onkeydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNowPlaying(); } } }, roll);
+    MC.band = h('div', { class: 'mc-band', onclick: e => { if (!e.target.closest('button')) openNowPlaying(); } }, up, name, down, v.votes);
     Object.assign(MC.band, { up, down, roll }, v);
     return MC.band;
   }
@@ -464,7 +471,11 @@
   function radioLabel(radio, cls, logoCls) {
     const v = voteButtons(radioVote);
     MC.radioVotes = (MC.radioVotes || []).filter(x => x.votes.isConnected).concat([v]);
-    const el = h('div', { class: cls, title: radio.kind === 'smart' ? 'MoodWave Smart Playlist' : `MoodWave ${RADIO_KIND[radio.kind] || '電台'}：${radio.name || ''}` },
+    // on the bar the label opens the now-playing page, as the channel band does (👍 / 👎 stay votes)
+    const open = cls === 'mc-radio-band';
+    const el = h('div', { class: cls + (open ? ' mc-radio-open' : ''), role: open && 'link', tabindex: open && 0,
+      title: radio.kind === 'smart' ? 'MoodWave Smart Playlist' : `MoodWave ${RADIO_KIND[radio.kind] || '電台'}：${radio.name || ''}`,
+      onclick: open && openNowPlaying, onkeydown: open && (e => { if (e.target === el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openNowPlaying(); } }) },
       h('span', { class: 'mc-radio-mark', html: logo(logoCls) }),
       h('span', { class: 'mc-radio-text' }, h('small', null, RADIO_KIND[radio.kind] || '電台'), h('b', null, radio.name || '')),
       v.votes);
@@ -1160,9 +1171,10 @@
         MC.aiBody = h('div', { class: 'mc-sc-body' }, cont, MC.methodBox, h('div', { class: 'field mc-field' }, MC.aiBlock));
         sect.append(card('進階 AI', MC.aiField, MC.aiBody));
 
-        MC.manageBox = h('div', { class: 'mc-manage' });
+        // Progress redraws only the controls: keep the scrollable failure list mounted beside them.
+        MC.manageBox = h('div', { class: 'mc-manage-controls' });
         MC.failBox = h('div', { class: 'mc-fails' });
-        sect.append(MC.manageBox);
+        sect.append(h('div', { class: 'mc-manage' }, MC.manageBox, MC.failBox));
         drawMethod();
         foldCards();
         drawProgress();
