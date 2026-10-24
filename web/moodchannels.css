@@ -197,7 +197,6 @@ html:root[data-ext-source="moodchannels"]:not(.mc-radio)[data-theme="vinyl"] #np
 /* the header (mark and name) 1.5× the first design's 15 px / 24 px */
 /* centred over the arrows (which are centred in the rail) */
 .mc-rail-head { display: flex; align-items: center; align-self: center; gap: 12px; margin: 0 0 9px; color: #fff; text-decoration: none; font-weight: 700; font-size: 22.5px; letter-spacing: .04em; opacity: .9; }
-.mc-rail-head:hover span { text-decoration: underline; }
 .mc-rail-head > .mc-brand { margin-right: -.04em; }      /* the letter spacing after the last letter: not counted in the centring */
 .mc-rail-logo { width: 36px; height: 36px; flex: none; }
 .mc-rail-step { all: unset; cursor: pointer; align-self: center; width: 64px; height: 22px; display: grid; place-items: center; border-radius: 8px; opacity: .7; }

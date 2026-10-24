@@ -685,6 +685,7 @@
       h('a', { class: 'mc-rail-head', href: '#/moods', html: logo('mc-rail-logo'), onclick: () => NowPlaying.hide() }, brand()),
       up, wheel, down);
     Object.assign(MC.rail, { up, down, wheel, items: new Map() }, v);
+    MC.rail.addEventListener('wheel', railScroll, { passive: false });
     return MC.rail;
   }
 
@@ -699,6 +700,23 @@
   function voteTarget() {
     const id = App.state && App.state.trackId, ch = MC.showing;
     return id && ch != null && ch !== SHUFFLE_ALL && INFO[ch] ? { id, ch } : null;
+  }
+
+  /**
+   * The mouse wheel or the trackpad turns the wheel by one channel per gesture: the scroll adds up until it is worth a
+   * step, then the rest of the gesture (a trackpad's glide included) is ignored until the scrolling pauses.
+   */
+  function railScroll(e) {
+    if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
+    e.preventDefault();
+    const r = MC.rail, now = performance.now();
+    if (now - (r.wheelAt || 0) > 150) { r.wheelSum = 0; r.wheelDone = false; }   // a pause: a new gesture
+    r.wheelAt = now;
+    if (r.wheelDone) return;
+    r.wheelSum = (r.wheelSum || 0) + e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
+    if (Math.abs(r.wheelSum) < 30) return;
+    r.wheelDone = true;
+    step(Math.sign(r.wheelSum));
   }
 
   /** The 👍 / 👎 pair: one on the bar's band, one on the now-playing wheel, both showing the same vote. */
