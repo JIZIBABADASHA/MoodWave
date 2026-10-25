@@ -140,6 +140,35 @@ const tick = () => sleep(20);
     check('another module\'s list: not asked', m.asks.length === 1 && other.p.queue.length === 1, m.asks.length);
   });
 
+  await group('a pick taken out (a 👎 in the queue): asked again at once', async () => {
+    let n = 0;
+    const m = module(() => Promise.resolve([['a3t1'], ['a3t2'], ['a3t3']][n++] || []));
+    const src = { ext: 'moodchannels', radio: { kind: 'track', name: 'x', seeds: ['a1t1'] } };
+    const { p } = make({ autoContinue: 'off' }); p.continuation = m.c;
+    await p.playList(['a1t1', 'a2t2'], 1, false, 0, src); await tick();
+    check('one pick after the track playing', p.queue.join() === 'a1t1,a2t2,a3t1' && m.asks.length === 1, p.queue);
+    p.remove(2); await tick();
+    check('taken out: asked again while the track plays, the new pick added', m.asks.length === 2 && p.queue.join() === 'a1t1,a2t2,a3t2', { asks: m.asks.length, q: p.queue });
+    p.add(['a4t4']);
+    p.remove(3); await tick();
+    check('a track taken out that leaves another after the one playing: not asked', m.asks.length === 2, m.asks.length);
+    // random songs (「佇列播完後」 random) do not come back at once when the listener takes the last one out
+    const r = make({ autoContinue: 'tracks' });
+    await r.p.playList(['a1t1', 'a1t2'], 0, false);
+    r.p.remove(1);
+    check('no module: nothing added on taking the last one out', r.p.queue.join() === 'a1t1', r.p.queue);
+    // the queue changed while the module thinks, still ending with the track playing: its answer (for the queue as it
+    // was) dropped, and asked again
+    let k = 0;
+    const slow = module(() => new Promise(res => setTimeout(() => res([k++ ? 'a4t2' : 'a4t1']), 100)));
+    const s = make({ autoContinue: 'off' }); s.p.continuation = slow.c;
+    await s.p.playList(['a1t1', 'a1t2', 'a1t3'], 2, false, 0, src);
+    s.p.remove(0);
+    await sleep(350);
+    check('asked again after its answer for the queue as it was', slow.asks.length === 2 && slow.asks[1].played.join() === 'a1t2,a1t3' && s.p.queue.join() === 'a1t2,a1t3,a4t2',
+      { asks: slow.asks.map(a => a.played.join()), q: s.p.queue });
+  });
+
   await group('where the Smart Playlist starts, as the queue changes', async () => {
     const m = module(() => Promise.resolve(['a4t1', 'a4t2', 'a4t3']));
     const { p } = make({ autoContinue: 'similar' }); p.continuation = m.c;

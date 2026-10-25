@@ -528,6 +528,118 @@
     if (!r || !r.known) { toast('沒有記下來，請再按一次'); return; }
     setRadioVotes(id, r);
     if (next < 0) skipOut(id);
+    else repickAfter(id, (App.queue || {}).index);
+  }
+
+  /* ── 👍 / 👎 in the queue drawer's upcoming rows (MIKU's queueRow, in place of its remove button) ── */
+
+  /** The source a queue row plays under: the queue's, or the Smart Playlist's from where it goes on (as MIKU's slotSource). */
+  function rowSource(q, i) {
+    const c = q.continued;
+    return q.source || (c && i >= c.from ? { ext: c.ext, smart: true } : null);
+  }
+
+  /**
+   * What a row's vote is in: a radio or the Smart Playlist (that radio's votes), or a channel (the channel's votes; not
+   * Shuffle All, which is every track); null for none (MIKU's remove button stays).
+   */
+  function rowTarget(src) {
+    if (!src || src.ext !== 'moodchannels') return null;
+    if (src.radio || src.smart) return { kind: 'radio', src };
+    return src.channel != null && src.channel !== SHUFFLE_ALL && INFO[src.channel] ? { kind: 'channel', src, ch: src.channel } : null;
+  }
+
+  function queueRow(el, row) {
+    const t = rowTarget(row.source);
+    if (!t) return;
+    const v = voteButtons(x => rowVote(row, t, v, x));
+    v.vote = 0;
+    v.votes.hidden = false;
+    v.votes.classList.add('mc-qvotes');
+    v.votes.ondblclick = e => e.stopPropagation();          // not MIKU's row: a double click there plays the row
+    showRowVote(v, t);
+    el.append(v.votes);
+    // the rows' votes asked for together, once the drawer is drawn
+    (MC.rowAsk = MC.rowAsk || []).push({ row, t, v });
+    if (MC.rowAsk.length === 1) queueMicrotask(askRowVotes);
+  }
+
+  function showRowVote(v, t) {
+    v.yes.setAttribute('aria-pressed', String(v.vote > 0));
+    v.no.setAttribute('aria-pressed', String(v.vote < 0));
+    const [yes, no] = t.kind === 'radio'
+      ? [`${t.src.smart ? 'Smart Playlist' : '這個電台'}多來點這種`, `${t.src.smart ? 'Smart Playlist' : '這個電台'}不要這首（移出佇列）`]
+      : [`這首屬於 ${INFO[t.ch].name}`, `這首不屬於 ${INFO[t.ch].name}（移出佇列）`];
+    v.yes.title = v.vote > 0 ? `取消（${yes}）` : yes;
+    v.no.title = v.vote < 0 ? `取消（${no.replace('（移出佇列）', '')}）` : no;
+  }
+
+  async function askRowVotes() {
+    const all = MC.rowAsk || [];
+    MC.rowAsk = [];
+    const groups = new Map();
+    for (const x of all) {
+      const key = x.t.kind === 'radio' ? 'r' + JSON.stringify(x.t.src) : 'c' + x.t.ch;
+      groups.set(key, (groups.get(key) || []).concat([x]));
+    }
+    for (const list of groups.values()) {
+      const t = list[0].t, ids = list.map(x => x.row.id);
+      const r = await (t.kind === 'radio' ? MC.api.rpc('radio.vote.many', { ids, source: t.src })
+                                          : MC.api.rpc('vote.many', { ids, channel: t.ch })).catch(() => null);
+      if (!r || !r.known) continue;
+      for (const x of list) {
+        if (!x.v.votes.isConnected || !(x.row.id in r.votes)) continue;
+        x.v.vote = r.votes[x.row.id] || 0;
+        showRowVote(x.v, x.t);
+      }
+    }
+  }
+
+  /** Where a track is in the queue after the track playing (it was at `at` when its row was drawn); -1 when gone. */
+  function upcomingIndex(id, at) {
+    const q = App.queue || {}, ids = q.ids || [];
+    if (at > q.index && ids[at] === id) return at;
+    for (let i = q.index + 1; i < ids.length; i++) if (ids[i] === id) return i;
+    return -1;
+  }
+
+  /**
+   * A vote on a row: 👎 takes the track out of the queue too (the radio or the Smart Playlist then picks another, the
+   * vote known); 👍 in a radio counts for the pick after it at once (repickAfter). Pressing the lit one takes it back.
+   */
+  async function rowVote(row, t, v, x) {
+    const next = v.vote === x ? 0 : x;
+    const r = await (t.kind === 'radio' ? MC.api.rpc('radio.vote', { id: row.id, source: t.src, vote: next })
+                                        : MC.api.rpc('vote', { id: row.id, channel: t.ch, vote: next })).catch(() => null);
+    if (!r || r.known === false) { toast('沒有記下來，請再按一次'); return; }
+    v.vote = r.vote || 0;
+    showRowVote(v, t);
+    const i = upcomingIndex(row.id, row.i);
+    if (next < 0) { if (i >= 0) Host.call('queue.remove', { i }); }
+    else if (t.kind === 'radio' && i >= 0) repickAfter(row.id, i);
+  }
+
+  /**
+   * A vote in a radio or the Smart Playlist counts for the very next pick: the track after the voted one, when it is
+   * the queue's last and a pick of the radio's (not one the listener queued), is picked again with the vote known and
+   * swapped (the new one added before the old one goes, so MIKU does not ask for another meanwhile).
+   */
+  async function repickAfter(id, at) {
+    const q = App.queue || {}, ids = (q.ids || []).slice();
+    const i = ids[at] === id ? at : ids.indexOf(id);
+    if (i < 0 || i !== ids.length - 2) return;
+    const old = ids[i + 1], src = rowSource(q, i + 1), t = rowTarget(src);
+    if (!t || t.kind !== 'radio') return;
+    const s = await MC.api.rpc('radio.vote.many', { ids: [old], source: src }).catch(() => null);
+    if (!s || !s.known || !(s.picked || []).includes(old)) return;
+    const r = await MC.api.rpc('radio.next', { played: ids.slice(Math.max(0, i + 1 - 50), i + 1), source: src }).catch(() => null);
+    const pick = r && r.ids && r.ids[0];
+    const now = (App.queue || {}).ids || [];
+    // only onto the queue as it was (nothing played on, added or taken out meanwhile)
+    if (!pick || pick === old || now.length !== ids.length || now[i + 1] !== old || now[i] !== id) return;
+    await Host.call('queue.add', { ids: [pick] });
+    const after = (App.queue || {}).ids || [];
+    if (after[i + 1] === old) Host.call('queue.remove', { i: i + 1 });
   }
 
   /**
@@ -1083,6 +1195,8 @@
           h('span', { class: 'mc-qhead-text' }, h('b', null, 'MoodWave Smart Playlist'),
             h('small', null, radio ? `${RADIO_KIND[radio.kind] || '電台'} · ${radio.name || ''}` : '播完後接著播放相似的歌'))));
       });
+      // 👍 / 👎 at the right of the upcoming rows while MoodWave plays (a radio, the Smart Playlist, a channel)
+      if (api.queueRow) api.queueRow(queueRow);
       // the song radio from a track, its artist or an album (only with the advanced AI and some of it analysed)
       if (api.addMenu) {
         api.addMenu('track', t => radioReady() ? [

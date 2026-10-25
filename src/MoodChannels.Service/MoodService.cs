@@ -243,6 +243,16 @@ public sealed class MoodService
 
     string? PathOf(string? id) => id == null ? null : _host.Tracks.FirstOrDefault(t => t.Id == id)?.Path;
 
+    /// <summary>The files of these library ids (the ones the library has), in one pass over it.</summary>
+    Dictionary<string, string> PathsOf(IReadOnlyList<string> ids)
+    {
+        var want = new HashSet<string>(ids);
+        var paths = new Dictionary<string, string>();
+        foreach (var t in _host.Tracks)
+            if (!string.IsNullOrEmpty(t.Path) && want.Contains(t.Id)) paths.TryAdd(t.Id, t.Path);
+        return paths;
+    }
+
     /* ── Song Radio (the advanced AI) ── */
 
     /// <summary>Whether the radio can run: the advanced AI on, its model there and some embeddings worked out.</summary>
@@ -293,7 +303,13 @@ public sealed class MoodService
         _ => seeds.Count > 0 ? "track:" + seeds[0].Path.ToLowerInvariant() : null,
     };
 
-    /// <summary>A radio's seeds with the listener's 👍 of radios from its start (weight 0.7), and their 👎 (kept out).</summary>
+    /// <summary>A seed the listener gave a 👍 counts this much more (the track playing, heard lately, a radio's own seed).</summary>
+    const double LikeBoost = 1.25;
+
+    /// <summary>
+    /// A radio's seeds with the listener's 👍 of radios from its start (weight 0.7; one already a seed counts
+    /// <see cref="LikeBoost"/> times more), and their 👎 (kept out, and no seed even if heard or one of the radio's own).
+    /// </summary>
     (List<Radio.Seed> Seeds, List<string> Avoid) WithVotes(string? origin, List<Radio.Seed> seeds, IReadOnlyList<MoodTrack> tracks, double like = 0.7)
     {
         if (origin == null) return (seeds, new());
@@ -301,9 +317,14 @@ public sealed class MoodService
         if (votes.Count == 0) return (seeds, new());
         var byPath = tracks.Where(t => !string.IsNullOrEmpty(t.Path)).GroupBy(t => t.Path, StringComparer.OrdinalIgnoreCase)
                            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        int VoteOn(string path) => votes.TryGetValue(path, out int v) ? v : 0;
+        var kept = seeds.Where(s => VoteOn(s.Track.Path) >= 0)
+                        .Select(s => VoteOn(s.Track.Path) > 0 ? s with { Weight = s.Weight * LikeBoost } : s).ToList();
         var have = new HashSet<string>(seeds.Select(s => s.Track.Path), StringComparer.OrdinalIgnoreCase);
         var more = votes.Where(v => v.Value > 0 && !have.Contains(v.Key) && byPath.ContainsKey(v.Key)).Select(v => new Radio.Seed(byPath[v.Key], like));
-        return (seeds.Concat(more).ToList(), votes.Where(v => v.Value < 0).Select(v => v.Key).ToList());
+        var all = kept.Concat(more).ToList();
+        // every seed with a 👎 (a track radio's own track): the radio still goes on from them rather than stop
+        return (all.Count > 0 ? all : seeds, votes.Where(v => v.Value < 0).Select(v => v.Key).ToList());
     }
 
     /// <summary>The radio playing (from the queue's source) and where it started; null when the queue is no radio of ours.</summary>
@@ -331,11 +352,48 @@ public sealed class MoodService
     }
 
     /// <summary>
+    /// The votes on tracks (library ids) in the radio the source names, for the queue's rows: { known, votes: { id: vote },
+    /// picked: the ones the radio picked (<see cref="Picked"/>) }.
+    /// </summary>
+    object RadioVoteStates(IReadOnlyList<string> ids, JsonElement? source)
+    {
+        if (RadioPlaying(source) is not { } r) return new { known = false, votes = new Dictionary<string, int>(), picked = new List<string>() };
+        var all = _store.RadioVotes(r.Origin);
+        var votes = new Dictionary<string, int>();
+        foreach (var (id, path) in PathsOf(ids)) votes[id] = all.GetValueOrDefault(path);
+        return new { known = true, votes, picked = ids.Distinct().Where(WasPicked).ToList() };
+    }
+
+    /// <summary>
     /// What comes after the queue's last track (the player's 「佇列播完後」, or the queue is a radio of ours): a radio
     /// goes on from its seeds; any other list from what the listener actually heard lately (<see cref="Listened"/>).
     /// A channel's list goes on only when the listener chose it.
     /// </summary>
-    public Task<IReadOnlyList<string>> Continue(IReadOnlyList<string> played, JsonElement? source, bool chosen) => Task.Run(() =>
+    public Task<IReadOnlyList<string>> Continue(IReadOnlyList<string> played, JsonElement? source, bool chosen) =>
+        Task.Run(() => Picked(PickNext(played, source, chosen)));
+
+    /// <summary>
+    /// The tracks the radio picked lately (library ids, the latest last): the page may pick one queued next again after
+    /// a vote (radio.next), never a track the listener put in the queue.
+    /// </summary>
+    readonly LinkedList<string> _picked = new();
+    const int PickedKept = 200;
+
+    IReadOnlyList<string> Picked(IReadOnlyList<string> ids)
+    {
+        lock (_picked)
+            foreach (var id in ids)
+            {
+                _picked.Remove(id);
+                _picked.AddLast(id);
+                if (_picked.Count > PickedKept) _picked.RemoveFirst();
+            }
+        return ids;
+    }
+
+    bool WasPicked(string id) { lock (_picked) return _picked.Contains(id); }
+
+    IReadOnlyList<string> PickNext(IReadOnlyList<string> played, JsonElement? source, bool chosen)
     {
         IReadOnlyList<string> none = Array.Empty<string>();
         if (!RadioReady) return none;
@@ -360,8 +418,9 @@ public sealed class MoodService
             history = heard.Where(t => !inHistory.Contains(t.Path)).Concat(history).ToList();
         }
         if (seeds.Count == 0) return none;
+        // one at a time: each pick follows what was heard and voted on up to then (MIKU asks again while it plays)
         // an album's radio: the album's own tracks come back now and then (at least 6 apart, Radio.AlbumGap)
-        var picks = _radio!.Next(seeds, history, 5, tracks, null, seedsPlay: radio is { Kind: "album" }, avoid: avoid);
+        var picks = _radio!.Next(seeds, history, PickCount, tracks, null, seedsPlay: radio is { Kind: "album" }, avoid: avoid);
         if (picks.Count == 0)
         {
             // no seed has its embedding yet: they go first, and meanwhile the seeds' artists and albums carry on
@@ -371,14 +430,14 @@ public sealed class MoodService
             var albums = new HashSet<string>(seeds.Select(x => AlbumKey(x.Track)));
             var fallback = tracks.Where(t => !string.IsNullOrEmpty(t.Path) && !seen.Contains(t.Path) && Playable(t) &&
                                              (artists.Contains(t.Artist.Trim().ToLowerInvariant()) || albums.Contains(AlbumKey(t))))
-                                 .OrderBy(_ => Random.Shared.Next()).Take(5).Select(t => t.Id).ToList();
+                                 .OrderBy(_ => Random.Shared.Next()).Take(PickCount).Select(t => t.Id).ToList();
             _host.Log($"radio: no seed embedded yet, {fallback.Count} from the same artists / albums");
             return fallback;
         }
         _host.Log($"radio: next {picks.Count} ({(radio != null ? radio.Value.Kind + " radio" : "after the list")}): " +
                   string.Join(", ", picks.Select(x => $"{x.Track.Title} {x.Cos:0.00}")));
-        return (IReadOnlyList<string>)picks.Select(x => x.Track.Id).ToList();
-    });
+        return picks.Select(x => x.Track.Id).ToList();
+    }
 
     /// <summary>A track a radio may play: analysed (current) and in a channel, as Radio.Next asks of its picks (not a file that failed, silence or speech).</summary>
     bool Playable(MoodTrack t) =>
@@ -386,6 +445,12 @@ public sealed class MoodService
 
     /// <summary>The Smart Playlist's votes (radio_votes): one set for it, whatever list it goes on from.</summary>
     const string SmartOrigin = "smart";
+
+    /// <summary>
+    /// Tracks picked at a time, a radio's start too (after its first track): one, so a vote on the track playing or the
+    /// one queued next counts for the very next pick (the page takes a pick out after a vote, and MIKU asks again).
+    /// </summary>
+    const int PickCount = 1;
 
     const int ListenedSeeds = 10;
     static readonly TimeSpan ListenedSpan = TimeSpan.FromHours(2);
@@ -451,9 +516,10 @@ public sealed class MoodService
         var start = kind != "album" ? seedTracks[0]
             : seedTracks.OrderByDescending(t => _store.LastPlayed(t.Path)?.Count ?? 0).ThenBy(t => seedTracks.IndexOf(t)).First();
         var first = new List<MoodTrack> { start };
-        var picks = _radio!.Next(seeds, first, 9, tracks, null, seedsPlay: kind == "album", avoid: avoid);
+        var picks = _radio!.Next(seeds, first, PickCount, tracks, null, seedsPlay: kind == "album", avoid: avoid);
         int waiting = seeds.Count(s => !_radio.Has(s.Track.Path));
         if (waiting > 0) _clap?.Prioritize(seeds.Select(s => s.Track.Path));
+        Picked(picks.Select(p => p.Track.Id).ToList());
         var list = first.Concat(picks.Select(p => p.Track)).Select(t => t.Id).ToList();
         _host.Log($"radio: {kind} radio \"{name}\" from {seeds.Count} seeds, {picks.Count} picked" + (waiting > 0 ? $", {waiting} seeds not embedded yet" : ""));
         return new
@@ -470,6 +536,19 @@ public sealed class MoodService
         string? path = PathOf(id);
         if (path == null || channel < 0 || channel >= Channels.Count || _personal == null) return new { vote = 0, known = false };
         return new { vote = _store.Vote(path, channel), known = _store.Get(path)?.Ok == true, channel = _personal.Status(channel) };
+    }
+
+    /// <summary>
+    /// The listener's votes on tracks (library ids) in a channel, for the queue's rows: { known, votes: { id: vote } }
+    /// with the tracks that can be voted on (analysed); known false for no such channel.
+    /// </summary>
+    object VoteStates(IReadOnlyList<string> ids, int channel)
+    {
+        if (channel < 0 || channel >= Channels.Count || _personal == null) return new { known = false, votes = new Dictionary<string, int>() };
+        var votes = new Dictionary<string, int>();
+        foreach (var (id, path) in PathsOf(ids))
+            if (_store.Get(path)?.Ok == true) votes[id] = _store.Vote(path, channel);
+        return new { known = true, votes };
     }
 
     /// <summary>👍 (+1), 👎 (-1) or neither (0) on a track in a channel; the channel's model learns from it at once.</summary>
@@ -538,6 +617,9 @@ public sealed class MoodService
             a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         bool? Bool(string name) =>
             a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : null;
+        List<string> Strs(string name) =>
+            a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
+                ? v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList() : new List<string>();
 
         switch (method)
         {
@@ -557,6 +639,8 @@ public sealed class MoodService
                 return Task.Run(() => Vote(Str("id"), Int("channel", -1), Int("vote", 0)));
             case "vote.get":
                 return Task.Run(() => VoteState(Str("id"), Int("channel", -1)));
+            case "vote.many":
+                return Task.Run(() => VoteStates(Strs("ids"), Int("channel", -1)));
             case "tuning.export":
             {
                 // the listener's channel models as a built-in tuning, written to the data folder (tuning.json)
@@ -601,9 +685,26 @@ public sealed class MoodService
                 return Task.FromResult(Status());
             case "radio.start":
             {
-                var ids = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("ids", out var arr) && arr.ValueKind == JsonValueKind.Array
-                    ? arr.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList() : new List<string>();
+                var ids = Strs("ids");
                 return Task.Run(() => StartRadio(Str("kind") ?? "track", ids, Str("artist"), Str("name")));
+            }
+            case "radio.next":
+            {
+                // a pick queued next taken again after a vote (the page swaps it): played = the queue up to before it;
+                // only for a radio or the Smart Playlist (its source), and it is a pick then too
+                JsonElement? source = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("source", out var src) ? src.Clone() : null;
+                var played = Strs("played");
+                return Task.Run(() =>
+                {
+                    if (RadioPlaying(source) is not { } r) return (object)new { ids = Array.Empty<string>() };
+                    return new { ids = Picked(PickNext(played, source, chosen: r.Kind == "smart")) };
+                });
+            }
+            case "radio.vote.many":
+            {
+                JsonElement? source = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("source", out var src) ? src.Clone() : null;
+                var ids = Strs("ids");
+                return Task.Run(() => RadioVoteStates(ids, source));
             }
             case "radio.vote":
             case "radio.vote.get":
