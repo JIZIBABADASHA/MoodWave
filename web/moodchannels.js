@@ -1196,9 +1196,17 @@
         swap: (prev, next) => !(prev && next && prev.channel != null && next.channel != null) });
       // the mark before 「MoodWave Smart Playlist 已開啟」 under MIKU's 佇列播完後
       if (api.continueMark) api.continueMark(() => { const t = document.createElement('template'); t.innerHTML = logo('mc-cont-logo'); return t.content.firstChild; });
-      // the queue drawer's header while MoodWave chooses what plays: a radio, or what comes after the list (auto-continue)
+      // the queue drawer's header while MoodWave chooses what plays: a channel, a radio, or what comes after the list
+      // (auto-continue)
       if (api.queueHead) api.queueHead((el, src) => {
-        const radio = src && src.ext === 'moodchannels' && src.radio;
+        const ours = src && src.ext === 'moodchannels';
+        if (ours && !src.radio && INFO[src.channel]) {
+          el.append(h('div', { class: 'mc-qhead' },
+            h('span', { class: 'mc-qhead-mark', html: logo('mc-qhead-logo') }),
+            h('span', { class: 'mc-qhead-text' }, h('b', null, 'MoodWave Channel'), h('small', null, INFO[src.channel].name))));
+          return;
+        }
+        const radio = ours && src.radio;
         const after = !radio && radioReady() && App.settings.autoContinue === 'similar' && ((App.state && App.state.repeat) || 'off') === 'off';
         if (!radio && !after) return;
         el.append(h('div', { class: 'mc-qhead' },
