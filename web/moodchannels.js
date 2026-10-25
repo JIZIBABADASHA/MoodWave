@@ -216,14 +216,15 @@
   const BG_VERSION = 7;                                      // bump when tools/gen_backdrops.py makes new backdrops (cache)
 
   /**
-   * Play a channel: shuffled, starting at a random track (picked by the module; `at` is where that track starts,
-   * 0 for now), and marked as this module's so the player bar shows the channel band.
+   * Play a channel: a random track of it and the next one (picked by the module; `at` is where the first starts, 0
+   * for now), marked as this module's so the player bar shows the channel band. The channel then goes on one track
+   * at a time (the module's Continue), so a vote counts for the very next pick.
    */
   async function playChannel(i, still = () => true) {
     const r = await MC.api.rpc('start', { channel: i });
     if (!still()) return true;                               // another channel was asked for meanwhile: that one plays
     if (!r || !r.ids.length) { toast(`${INFO[i].name} 沒有曲目`); return false; }
-    await MC.api.play(r.ids, true, r.start, { at: r.at, source: { channel: i } });
+    await MC.api.play(r.ids, false, r.start, { at: r.at, source: { channel: i } });
     return true;
   }
 
@@ -527,8 +528,9 @@
     const r = await MC.api.rpc('radio.vote', { id, source: src, vote: next }).catch(() => null);
     if (!r || !r.known) { toast('沒有記下來，請再按一次'); return; }
     setRadioVotes(id, r);
+    // the track queued next picked again with the vote known, then a 👎 skips to it
+    await repickAfter(id, (App.queue || {}).index);
     if (next < 0) skipOut(id);
-    else repickAfter(id, (App.queue || {}).index);
   }
 
   /* ── 👍 / 👎 in the queue drawer's upcoming rows (MIKU's queueRow, in place of its remove button) ── */
@@ -604,8 +606,9 @@
   }
 
   /**
-   * A vote on a row: 👎 takes the track out of the queue too (the radio or the Smart Playlist then picks another, the
-   * vote known); 👍 in a radio counts for the pick after it at once (repickAfter). Pressing the lit one takes it back.
+   * A vote on a row: 👎 takes the track out of the queue too (the channel, radio or Smart Playlist then picks another,
+   * the vote known: a channel draws from its tracks as the vote leaves them); otherwise the pick after it is drawn
+   * again at once (repickAfter). Pressing the lit one takes it back.
    */
   async function rowVote(row, t, v, x) {
     const next = v.vote === x ? 0 : x;
@@ -614,23 +617,29 @@
     if (!r || r.known === false) { toast('沒有記下來，請再按一次'); return; }
     v.vote = r.vote || 0;
     showRowVote(v, t);
+    if (t.kind === 'channel') {                              // the channel's sizes may have changed
+      MC.counts = null;
+      if (MC.pageView && MC.pageView.isConnected) renderPage(MC.pageView);
+    }
     const i = upcomingIndex(row.id, row.i);
     if (next < 0) { if (i >= 0) Host.call('queue.remove', { i }); }
-    else if (t.kind === 'radio' && i >= 0) repickAfter(row.id, i);
+    else if (i >= 0) repickAfter(row.id, i);
   }
 
   /**
-   * A vote in a radio or the Smart Playlist counts for the very next pick: the track after the voted one, when it is
-   * the queue's last and a pick of the radio's (not one the listener queued), is picked again with the vote known and
-   * swapped (the new one added before the old one goes, so MIKU does not ask for another meanwhile).
+   * A vote counts for the very next pick: the track after the voted one, when it is the queue's last and MoodWave's
+   * pick (not one the listener queued), is picked again with the vote known (a channel: at random from its tracks as
+   * they are after the vote; a radio or the Smart Playlist: by its seeds and votes) and swapped (the new one added
+   * before the old one goes, so MIKU does not ask for another meanwhile).
    */
   async function repickAfter(id, at) {
     const q = App.queue || {}, ids = (q.ids || []).slice();
     const i = ids[at] === id ? at : ids.indexOf(id);
     if (i < 0 || i !== ids.length - 2) return;
     const old = ids[i + 1], src = rowSource(q, i + 1), t = rowTarget(src);
-    if (!t || t.kind !== 'radio') return;
-    const s = await MC.api.rpc('radio.vote.many', { ids: [old], source: src }).catch(() => null);
+    if (!t) return;
+    const s = await (t.kind === 'radio' ? MC.api.rpc('radio.vote.many', { ids: [old], source: src })
+                                        : MC.api.rpc('vote.many', { ids: [old], channel: t.ch })).catch(() => null);
     if (!s || !s.known || !(s.picked || []).includes(old)) return;
     const r = await MC.api.rpc('radio.next', { played: ids.slice(Math.max(0, i + 1 - 50), i + 1), source: src }).catch(() => null);
     const pick = r && r.ids && r.ids[0];
@@ -894,6 +903,8 @@
     setVotes(t, r);
     MC.counts = null;                                      // the channels' sizes may have changed
     if (MC.pageView && MC.pageView.isConnected) renderPage(MC.pageView);   // the channel page open: its counts at once
+    // the channel worked out again with the vote: the track queued next is drawn again from it, then a 👎 skips
+    await repickAfter(t.id, (App.queue || {}).index);
     if (next < 0) skipOut(t.id);                         // the lit button is the feedback: no message
   }
 

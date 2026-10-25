@@ -172,8 +172,8 @@ console.log(`helper  ${exe}\nmodel   ${version}\nwork    ${work}\n${os.platform(
     const list = [songs[4].id, songs[5].id, songs[6].id];
     let c = await cont(h, list, null, false);
     check('a list nobody asked to go on with: nothing', c.length === 0, c);
-    c = await cont(h, list, { channel: 2, ext: 'moodchannels' }, false);
-    check('a channel\'s list, not chosen: nothing', c.length === 0, c);
+    c = await cont(h, list, { channel: 13, ext: 'moodchannels' }, false);
+    check('a channel goes on by itself (not chosen): one of it, not queued', c.length === 1 && clean(c) && !list.includes(c[0]), show(c));
     c = await cont(h, list, null, true);
     info('smart playlist: ' + show(c).join(', '));
     check('chosen (the Smart Playlist): one, new, only songs', c.length === 1 && clean(c) && !c.some(id => list.includes(id)), show(c));

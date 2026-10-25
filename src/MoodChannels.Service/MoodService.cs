@@ -290,6 +290,34 @@ public sealed class MoodService
         return (kind, name, seeds);
     }
 
+    /// <summary>The channel a queue's source plays (a channel's list, Shuffle All too); null for anything else.</summary>
+    static int? ChannelOf(JsonElement? source) =>
+        source is { ValueKind: JsonValueKind.Object } s && !s.TryGetProperty("radio", out _) && s.TryGetProperty("channel", out var c) &&
+        c.ValueKind == JsonValueKind.Number && c.TryGetInt32(out int ch) && ch >= 0 && ch <= All ? ch : null;
+
+    /// <summary>A track played within this long counts as heard lately: a channel's random pick takes others first.</summary>
+    static readonly TimeSpan ChannelFresh = TimeSpan.FromHours(12);
+
+    /// <summary>
+    /// A channel's next track: at random from its tracks as they are now (worked out again at each pick, so a vote
+    /// just cast counts: a 👎'd track is out, and what the channel's model now leaves out too), not one of
+    /// <paramref name="played"/> (the queue up to here) and, while there are others, not one heard lately; with every
+    /// track heard lately, the one heard longest ago. Null for an empty channel.
+    /// </summary>
+    string? ChannelNext(int channel, IReadOnlyList<string> played)
+    {
+        var ids = Collect().Channels[channel];
+        var seen = new HashSet<string>(played);
+        var left = ids.Where(id => !seen.Contains(id)).Distinct().ToList();
+        if (left.Count == 0) left = ids.Where(id => id != played.LastOrDefault()).Distinct().ToList();   // all of it in the queue: round again
+        if (left.Count == 0) return null;
+        var path = _host.Tracks.Where(t => !string.IsNullOrEmpty(t.Path)).GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.First().Path);
+        DateTime Last(string id) => path.TryGetValue(id, out var p) && _store.LastPlayed(p) is { } lp ? lp.At : DateTime.MinValue;
+        var since = DateTime.UtcNow - ChannelFresh;
+        var fresh = left.Where(id => Last(id) < since).ToList();
+        return fresh.Count > 0 ? fresh[Random.Shared.Next(fresh.Count)] : left.MinBy(Last);
+    }
+
     static string AlbumKey(MoodTrack t) => t.Album.Trim().ToLowerInvariant() + "|" + (Path.GetDirectoryName(t.Path) ?? "").ToLowerInvariant();
 
     /// <summary>
@@ -365,9 +393,9 @@ public sealed class MoodService
     }
 
     /// <summary>
-    /// What comes after the queue's last track (the player's 「佇列播完後」, or the queue is a radio of ours): a radio
-    /// goes on from its seeds; any other list from what the listener actually heard lately (<see cref="Listened"/>).
-    /// A channel's list goes on only when the listener chose it.
+    /// What comes after the queue's last track (the player's 「佇列播完後」, or the queue is a radio or a channel of
+    /// ours): a channel goes on at random from it (<see cref="ChannelNext"/>); a radio from its seeds; any other list,
+    /// when the listener chose it, from what they actually heard lately (<see cref="Listened"/>).
     /// </summary>
     public Task<IReadOnlyList<string>> Continue(IReadOnlyList<string> played, JsonElement? source, bool chosen) =>
         Task.Run(() => Picked(PickNext(played, source, chosen)));
@@ -396,6 +424,9 @@ public sealed class MoodService
     IReadOnlyList<string> PickNext(IReadOnlyList<string> played, JsonElement? source, bool chosen)
     {
         IReadOnlyList<string> none = Array.Empty<string>();
+        // a channel goes on by itself, one track at a time at random from it (no advanced AI needed)
+        if (ChannelOf(source) is int channel)
+            return ChannelNext(channel, played) is string next ? new[] { next } : none;
         if (!RadioReady) return none;
         var tracks = _host.Tracks;
         var byId = tracks.Where(t => !string.IsNullOrEmpty(t.Path)).GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.First());
@@ -539,16 +570,17 @@ public sealed class MoodService
     }
 
     /// <summary>
-    /// The listener's votes on tracks (library ids) in a channel, for the queue's rows: { known, votes: { id: vote } }
-    /// with the tracks that can be voted on (analysed); known false for no such channel.
+    /// The listener's votes on tracks (library ids) in a channel, for the queue's rows: { known, votes: { id: vote },
+    /// picked: the ones picked for the channel (<see cref="Picked"/>) } with the tracks that can be voted on
+    /// (analysed); known false for no such channel.
     /// </summary>
     object VoteStates(IReadOnlyList<string> ids, int channel)
     {
-        if (channel < 0 || channel >= Channels.Count || _personal == null) return new { known = false, votes = new Dictionary<string, int>() };
+        if (channel < 0 || channel >= Channels.Count || _personal == null) return new { known = false, votes = new Dictionary<string, int>(), picked = new List<string>() };
         var votes = new Dictionary<string, int>();
         foreach (var (id, path) in PathsOf(ids))
             if (_store.Get(path)?.Ok == true) votes[id] = _store.Vote(path, channel);
-        return new { known = true, votes };
+        return new { known = true, votes, picked = ids.Distinct().Where(WasPicked).ToList() };
     }
 
     /// <summary>👍 (+1), 👎 (-1) or neither (0) on a track in a channel; the channel's model learns from it at once.</summary>
@@ -691,12 +723,13 @@ public sealed class MoodService
             case "radio.next":
             {
                 // a pick queued next taken again after a vote (the page swaps it): played = the queue up to before it;
-                // only for a radio or the Smart Playlist (its source), and it is a pick then too
+                // only for a channel, a radio or the Smart Playlist (its source), and it is a pick then too
                 JsonElement? source = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("source", out var src) ? src.Clone() : null;
                 var played = Strs("played");
                 return Task.Run(() =>
                 {
-                    if (RadioPlaying(source) is not { } r) return (object)new { ids = Array.Empty<string>() };
+                    if (ChannelOf(source) != null) return (object)new { ids = Picked(PickNext(played, source, chosen: false)) };
+                    if (RadioPlaying(source) is not { } r) return new { ids = Array.Empty<string>() };
                     return new { ids = Picked(PickNext(played, source, chosen: r.Kind == "smart")) };
                 });
             }
@@ -793,21 +826,24 @@ public sealed class MoodService
     }
 
     /// <summary>
-    /// What to play for a channel: its tracks in random order, starting at a random one (one whose loudness is
-    /// measured, when there is such); at = where that first track starts, in seconds (always its beginning: the engine
-    /// finds no chorus).
+    /// What to play for a channel: a random track of it (one whose loudness is measured, when there is such) and the
+    /// next one (<see cref="ChannelNext"/>); after that the channel goes on one track at a time (MIKU asks Continue
+    /// while the last track plays), so a vote counts for the very next pick. at = where the first track starts, in
+    /// seconds (always its beginning: the engine finds no chorus); count = the channel's tracks.
     /// </summary>
     object StartChannel(int channel)
     {
-        if (channel < 0 || channel > All) return new { ids = new List<string>(), start = -1, at = 0.0 };
-        var ids = Collect().Channels[channel];
-        if (ids.Count == 0) return new { ids, start = -1, at = 0.0 };
+        if (channel < 0 || channel > All) return new { ids = new List<string>(), start = -1, at = 0.0, count = 0 };
+        var all = Collect().Channels[channel];
+        if (all.Count == 0) return new { ids = all, start = -1, at = 0.0, count = 0 };
         // the first track is levelled from its first second only if its loudness is measured already (the gain is
         // set as a track starts): while the library is still being measured, start at one that is
         var path = _host.Tracks.GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.First().Path);
-        var measured = Enumerable.Range(0, ids.Count).Where(i => path.TryGetValue(ids[i], out var p) && TryGetLoudness(p, out _, out _)).ToList();
-        int start = measured.Count > 0 ? measured[Random.Shared.Next(measured.Count)] : Random.Shared.Next(ids.Count);
-        return new { ids, start, at = 0.0 };
+        var measured = all.Where(id => path.TryGetValue(id, out var p) && TryGetLoudness(p, out _, out _)).ToList();
+        string first = measured.Count > 0 ? measured[Random.Shared.Next(measured.Count)] : all[Random.Shared.Next(all.Count)];
+        var ids = new List<string> { first };
+        if (ChannelNext(channel, ids) is string next && next != first) ids.Add(Picked(new[] { next })[0]);
+        return new { ids, start = 0, at = 0.0, count = all.Count };
     }
 
     /// <summary>The library tracks whose analysis failed, with the reason in words (for the settings list).</summary>

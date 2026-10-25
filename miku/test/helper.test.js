@@ -149,12 +149,19 @@ let vote = null;        // the track and channel voted on
       let good = 0;
       for (let i = 0; i < 6; i++) {
         const st = await h.rpc('start', { channel: all.index });
-        if (st.ids.length === all.count && st.start >= 0 && st.at === 0 && typeof (h.loudness.get(pathOf[st.ids[st.start]]) || [])[0] === 'number') good++;
+        if (st.ids.length === Math.min(2, all.count) && st.count === all.count && st.start === 0 && st.at === 0 && new Set(st.ids).size === st.ids.length &&
+            st.ids.every(id => inAll.has(id)) && typeof (h.loudness.get(pathOf[st.ids[0]]) || [])[0] === 'number') good++;
       }
-      check('start: the whole channel, from a track with measured loudness (6 tries)', good === 6, good);
+      check('start: a track with measured loudness and the next one, one at a time (6 tries)', good === 6, good);
       const one = c.channels.slice(0, -1).find(ch => ch.count > 0);
       const st = await h.rpc('start', { channel: one.index });
-      check(`start of ${one.name}: its tracks`, st.ids.length === one.count && st.ids.every(id => one.ids.includes(id)), st.ids.length);
+      check(`start of ${one.name}: two of its tracks`, st.ids.length === Math.min(2, one.count) && st.ids.every(id => one.ids.includes(id)), st.ids);
+      // the channel going on (as MIKU's Continue, or the page after a vote): one more of it, not one already queued
+      const src = { channel: all.index, ext: 'moodchannels' };
+      const n = await h.rpc('radio.next', { played: st.ids, source: src });
+      check('next of a channel: one of it, not queued yet', n.ids.length === 1 && inAll.has(n.ids[0]) && (all.count <= 2 || !st.ids.includes(n.ids[0])), n.ids);
+      const p = await h.rpc('vote.many', { ids: n.ids, channel: one.index });
+      check('… known as a pick', p.known === true && p.picked.includes(n.ids[0]), p);
     }
     const none = await h.rpc('start', { channel: 999 });
     check('start of an unknown channel: nothing', none.start === -1 && none.ids.length === 0, none);
@@ -173,6 +180,10 @@ let vote = null;        // the track and channel voted on
     check('vote logged', h.logs(from).some(l => l.startsWith(`vote +1 on ${vote.name}`)), h.logs(from).find(l => l.startsWith('vote')));
     check('vote.get gives it back', (await h.rpc('vote.get', { id, channel })).vote === 1);
     check('👎 replaces it', (await h.rpc('vote', { id, channel, vote: -1 })).vote === -1);
+    // the channel's next pick comes from the channel as the vote leaves it: never the 👎'd track
+    const picks = [];
+    for (let k = 0; k < 20; k++) picks.push(...(await h.rpc('radio.next', { played: [], source: { channel, ext: 'moodchannels' } })).ids);
+    check('👎: not the channel\'s next pick (20 tries)', !picks.includes(id), picks.length);
     check('0 clears it', (await h.rpc('vote', { id, channel, vote: 0 })).vote === 0);
     check('unknown track: not known', (await h.rpc('vote', { id: 'nope', channel, vote: 1 })).known === false);
     check('bad channel: not known', (await h.rpc('vote.get', { id, channel: 99 })).known === false);
