@@ -490,7 +490,7 @@ public sealed class MoodService
     /// <summary>
     /// The track playing, the next few and the album's tracks after it (at most AlbumAhead) go to the front of the
     /// analysis: its channels (and vote buttons) and the loudness the next tracks are levelled with are there by the
-    /// time they play.
+    /// time they play. The track playing itself waits until another plays (SetPlaying).
     /// </summary>
     const int AlbumAhead = 12;
 
@@ -502,11 +502,15 @@ public sealed class MoodService
         try { ids = _host.Upcoming(4); }
         catch (Exception) { return; }                       // an older MIKU without it
         string key = string.Join('|', ids);
-        if (ids.Count == 0 || key == _upcomingKey) return;
+        if (key == _upcomingKey) return;
         _upcomingKey = key;
         var tracks = _host.Tracks;
         var byId = tracks.GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.First());   // ids may repeat
         var next = ids.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
+        // the track playing is left alone while it plays (the player is reading it), and analysed once another plays
+        string? playing = ids.Count > 0 && byId.TryGetValue(ids[0], out var p) ? p.Path : null;
+        q.SetPlaying(playing);
+        _clap?.SetPlaying(playing);
         if (next.Count == 0) return;
         var now = next[0];
         string dir = Path.GetDirectoryName(now.Path ?? "") ?? "";

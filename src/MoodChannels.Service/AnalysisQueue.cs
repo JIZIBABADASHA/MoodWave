@@ -15,6 +15,9 @@ namespace MoodChannels.Service;
 /// What is about to play goes first (Prioritize), even while the analysis is paused: the reader reads it next and
 /// the next free worker takes it before the files read ahead. It goes through the reader like the rest: workers
 /// opening files on the disk themselves, side by side, keep its head seeking and starve the track playing from it.
+///
+/// The track playing itself (SetPlaying) is left until it stops: the player is reading that file, and the reader and
+/// ffmpeg reading it too, on a USB hard disk, starve it. It is taken up again, where it was, once another plays.
 /// </summary>
 sealed class AnalysisQueue
 {
@@ -38,6 +41,8 @@ sealed class AnalysisQueue
     readonly Queue<Job> _ready = new();         // read ahead, waiting for a worker
     readonly Queue<Job> _urgent = new();        // about to play: read before everything else
     readonly Queue<Job> _readyUrgent = new();   // …and read, taken before _ready
+    readonly List<(Job Job, bool Urgent)> _held = new();   // the track playing: left until another plays
+    string? _playing;
     readonly SemaphoreSlim _readerSignal = new(0);
     readonly Timer _retry;                      // a file not stored (the database busy …): the work list made again later
     static readonly TimeSpan RetryAfter = TimeSpan.FromMinutes(1);
@@ -114,6 +119,7 @@ sealed class AnalysisQueue
             _pending.Clear();
             var ahead = new HashSet<string>(_ready.Concat(_urgent).Concat(_readyUrgent).Select(r => r.Path), StringComparer.OrdinalIgnoreCase);
             if (_reading != null) ahead.Add(_reading);
+            foreach (var h in _held) ahead.Add(h.Job.Path);
             foreach (var x in todo) if (!_running.Contains(x.Path) && !ahead.Contains(x.Path)) _pending.Enqueue(x);
             (_total, _ok, _failed, _loudDone) = (total, ok, failed, loudDone);
             _loudTodo = todo.Count;                              // the files to analyse are measured too
@@ -170,6 +176,31 @@ sealed class AnalysisQueue
         return moved;
     }
 
+    /// <summary>
+    /// The file playing now (null: none): it is not read or analysed while it plays. Files left for it before are
+    /// put back first (about to play: with those; the rest: at the front of the work list).
+    /// </summary>
+    public void SetPlaying(string? path)
+    {
+        lock (_lock)
+        {
+            if (string.Equals(path, _playing, StringComparison.OrdinalIgnoreCase)) return;
+            _playing = string.IsNullOrEmpty(path) ? null : path;
+            var back = _held.Where(h => !IsPlaying(h.Job.Path)).ToList();
+            if (back.Count == 0) return;
+            _held.RemoveAll(h => !IsPlaying(h.Job.Path));
+            var urgent = back.Where(h => h.Urgent).Select(h => h.Job).Concat(_urgent).ToList();
+            _urgent.Clear();
+            foreach (var j in urgent) _urgent.Enqueue(j);
+            var pending = back.Where(h => !h.Urgent).Select(h => h.Job).Concat(_pending).ToList();
+            _pending.Clear();
+            foreach (var j in pending) _pending.Enqueue(j);
+        }
+        Wake();
+    }
+
+    bool IsPlaying(string path) => _playing != null && string.Equals(path, _playing, StringComparison.OrdinalIgnoreCase);
+
     public void SetPaused(bool paused) { lock (_lock) _paused = paused; Wake(); Changed?.Invoke(); }
 
     void Wake()
@@ -190,6 +221,8 @@ sealed class AnalysisQueue
             bool got = false, urgent = false;
             lock (_lock)
             {
+                while (_urgent.Count > 0 && IsPlaying(_urgent.Peek().Path)) _held.Add((_urgent.Dequeue(), true));
+                while (_pending.Count > 0 && IsPlaying(_pending.Peek().Path)) _held.Add((_pending.Dequeue(), false));
                 if (_enabled && _urgent.Count > 0 && _readyUrgent.Count < _threads)
                 {
                     job = _urgent.Dequeue();
@@ -240,6 +273,14 @@ sealed class AnalysisQueue
                 bool got = false, quit = false;
                 lock (_lock)
                 {
+                    // read ahead before it started playing: left like the reader leaves it
+                    while (_readyUrgent.Count > 0 && IsPlaying(_readyUrgent.Peek().Path)) _held.Add((_readyUrgent.Dequeue(), true));
+                    while (_ready.Count > 0 && IsPlaying(_ready.Peek().Path))
+                    {
+                        var r = _ready.Dequeue();
+                        _readyBytes -= r.Size;
+                        _held.Add((r, false));
+                    }
                     if (index >= _threads) quit = true;
                     else if (_enabled && _readyUrgent.Count > 0)
                     {
@@ -369,9 +410,9 @@ sealed class AnalysisQueue
                 double span = (DateTime.UtcNow - _recent.Peek()).TotalHours;
                 if (span > 0) rate = _recent.Count / span;
             }
-            var queued = _pending.Concat(_ready).Concat(_urgent).Concat(_readyUrgent);
+            var queued = _pending.Concat(_ready).Concat(_urgent).Concat(_readyUrgent).Concat(_held.Select(h => h.Job));
             int loudOnly = queued.Count(j => j.LoudOnly) + _runningLoud;
-            int pending = _pending.Count + _ready.Count + _urgent.Count + _readyUrgent.Count + _running.Count - loudOnly;   // to analyse
+            int pending = _pending.Count + _ready.Count + _urgent.Count + _readyUrgent.Count + _held.Count + _running.Count - loudOnly;   // to analyse
             return new
             {
                 engine = modelVersion, engineError = modelError,

@@ -45,6 +45,7 @@ sealed class ClapQueue
     readonly Queue<DateTime> _recent = new();
 
     bool _enabled, _paused, _gpu = true;
+    string? _playing;                               // the track playing: not taken while it plays
     int _threadSetting;                             // the model's threads on the processor; 0: half the cores
     int? _segmentSetting;
     int _total, _done;
@@ -147,6 +148,9 @@ sealed class ClapQueue
     }
 
     public void SetPaused(bool paused) { lock (_lock) _paused = paused; Wake(); Changed?.Invoke(); }
+
+    /// <summary>The file playing now (null: none): it is left in the work lists until another plays.</summary>
+    public void SetPlaying(string? path) { lock (_lock) _playing = string.IsNullOrEmpty(path) ? null : path; Wake(); }
 
     bool Active => _enabled && !_paused;
 
@@ -268,20 +272,27 @@ sealed class ClapQueue
         return moved;
     }
 
-    /// <summary>The next job: about to play, then fresh, then (while the DSP analysis is idle) the rest.</summary>
+    /// <summary>
+    /// The next job: about to play, then fresh, then (while the DSP analysis is idle) the rest; never the track
+    /// playing (the process reading it too starves it), which waits where it is until another plays. Under _lock.
+    /// </summary>
+    LinkedListNode<Job>? Next(bool dspBusy)
+    {
+        if (!_enabled || _model == null || _error != null) return null;
+        foreach (var list in new[] { _urgent, Active ? _fresh : null, Active && !dspBusy ? _pending : null })
+            for (var n = list?.First; n != null; n = n.Next)
+                if (_playing == null || !string.Equals(n.Value.Path, _playing, StringComparison.OrdinalIgnoreCase)) return n;
+        return null;
+    }
+
     bool TryTake(bool dspBusy, out Job job)
     {
         lock (_lock)
         {
             job = default;
-            if (!_enabled || _model == null || _error != null) return false;
-            LinkedList<Job>? from = _urgent.Count > 0 ? _urgent
-                : !Active ? null
-                : _fresh.Count > 0 ? _fresh
-                : !dspBusy && _pending.Count > 0 ? _pending : null;
-            if (from == null) return false;
-            job = from.First!.Value;
-            from.RemoveFirst();
+            if (Next(dspBusy) is not { } n) return false;
+            job = n.Value;
+            n.List!.Remove(n);
             _running.Add(job.Path);
             return true;
         }
@@ -289,9 +300,7 @@ sealed class ClapQueue
 
     bool HasWork(bool dspBusy)
     {
-        lock (_lock)
-            return _enabled && _model != null && _error == null &&
-                   (_urgent.Count > 0 || Active && (_fresh.Count > 0 || !dspBusy && _pending.Count > 0));
+        lock (_lock) return Next(dspBusy) != null;
     }
 
     async Task Loop()
