@@ -8,7 +8,8 @@ namespace MoodChannels.Service;
 /// time-of-day and eight mood channels, adjusted to the listener's own 👍 / 👎 (Personalization). Settings:
 /// "enabled" (analysis and the page, default on), "threads" (default 1), "builtin" (the built-in tuning, default on);
 /// the advanced AI (CLAP embeddings, ClapQueue): "ai" (default off), "aiSegments" (6 / 9 / 12; unset: 12 with a GPU,
-/// 6 on the processor), "aiGpu" (default on), "aiThreads" (on the processor; 0, the default: half the cores).
+/// 6 on the processor), "aiGpu" (default on), "aiThreads" (on the processor; 0, the default: half the cores),
+/// "readLimit" (the analysis' disk speed while a track plays, MB a second: 4 / 8 / 16, 0 none; default 8).
 /// It measures each track's loudness too, which the player's ReplayGain uses to level tracks (TryGetLoudness). The
 /// player is reached only through <see cref="IMoodHost"/>.
 /// </summary>
@@ -127,11 +128,12 @@ public sealed class MoodService
             // only now the module answers with channels: before, the page would get them without the listener's votes
             _personal = personal;
             _analyzer = analyzer;
-            _queue = new AnalysisQueue(_store, analyzer, () => host.Tracks, () => host.FfmpegPath, host.Log);
+            _readLimit = ReadLimitSetting();
+            _queue = new AnalysisQueue(_store, analyzer, () => host.Tracks, () => host.FfmpegPath, host.Log, ReadLimitNow);
             _queue.Changed += PostStatusSoon;
             var queue = _queue;
             var clapModel = _clapModel = new ClapModel(host.ModuleDir, host.DataDir, host.Log);
-            _clap = new ClapQueue(_store, () => host.Tracks, () => host.FfmpegPath, () => queue.Busy, () => clapModel.OnnxPath, host.ModuleDir, host.Log);
+            _clap = new ClapQueue(_store, () => host.Tracks, () => host.FfmpegPath, () => queue.Busy, () => clapModel.OnnxPath, host.ModuleDir, host.Log, ReadLimitNow);
             // while the model downloads, its progress goes to the page every second; once there, the work list is made
             _downloadTick = Guarded("download progress", () => { PostStatusSoon(); if (!clapModel.Downloading) Soon(_downloadTick, Timeout.Infinite); });
             clapModel.Changed += () =>
@@ -159,6 +161,22 @@ public sealed class MoodService
         ClassifyStored();
         Collect();                                       // the listener's adjustments ready before the page asks
         Ready?.Invoke();
+    }
+
+    /// <summary>
+    /// 限制分析速度 (setting readLimit, MB a second; 0: none): while a track plays, the analysis reads the disk at most
+    /// this fast, 1 MB at a time, so a player reading from the same disk (a USB hard disk) is not starved.
+    /// </summary>
+    public static readonly int[] ReadLimits = { 4, 8, 16, 0 };
+    const int DefaultReadLimit = 8;
+    volatile int _readLimit = DefaultReadLimit;
+
+    int ReadLimitSetting() { int mb = Setting("readLimit", DefaultReadLimit); return ReadLimits.Contains(mb) ? mb : DefaultReadLimit; }
+
+    long ReadLimitNow()
+    {
+        int mb = _readLimit;
+        return mb > 0 && _host.IsPlaying ? mb * (1L << 20) : 0;
     }
 
     /// <summary>The advanced AI's settings to the CLAP queue (off with the analysis).</summary>
@@ -190,6 +208,7 @@ public sealed class MoodService
         var ai = JsonSerializer.SerializeToNode(_clap?.Status()
             ?? new { enabled = Setting("ai", false), segmentSetting = AiSegments, gpu = Setting("aiGpu", true), gpuCapable = OperatingSystem.IsWindows() })!.AsObject();
         if (_clapModel != null) ai["download"] = JsonSerializer.SerializeToNode(_clapModel.Status());
+        ai["readLimit"] = _queue != null ? _readLimit : ReadLimitSetting();   // 限制分析速度 (MB a second; 0: none)
         o["ai"] = ai;
         return o;
     }
@@ -699,6 +718,7 @@ public sealed class MoodService
                 if (Int("aiSegments", -1) is int seg and >= 0) _host.SetSetting("aiSegments", seg == 0 ? 0 : ClapWindows.Segments(seg));
                 if (Bool("aiGpu") is bool gpu) _host.SetSetting("aiGpu", gpu);
                 if (Int("aiThreads", -1) is int aiThreads and >= 0) _host.SetSetting("aiThreads", Math.Min(aiThreads, Environment.ProcessorCount));
+                if (Int("readLimit", -1) is int readLimit && ReadLimits.Contains(readLimit)) { _host.SetSetting("readLimit", readLimit); _readLimit = readLimit; }
                 Task.Run(ConfigureClap);
                 return Task.FromResult(Status());
             }

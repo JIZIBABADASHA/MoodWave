@@ -38,4 +38,23 @@ public class AnalysisQueueTests : IDisposable
         Assert.Equal(1, status.GetProperty("analysed").GetInt32());
         store.Dispose();
     }
+
+    [Fact]
+    public async Task The_speed_limit_paces_the_read_and_can_be_lifted_while_it_reads()
+    {
+        string file = Path.Combine(_dir, "big.flac");
+        File.WriteAllBytes(file, new byte[4 << 20]);
+        var buf = new byte[4 << 20];
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        await AnalysisQueue.ReadThrough(file, buf, () => 8L << 20, CancellationToken.None);   // 4 MB at 8 MB/s: half a second
+        Assert.InRange(sw.Elapsed.TotalSeconds, 0.45, 3);
+        sw.Restart();
+        await AnalysisQueue.ReadThrough(file, buf, () => 0, CancellationToken.None);          // no limit: at once
+        Assert.True(sw.Elapsed.TotalSeconds < 0.4, sw.Elapsed.ToString());
+        // playback paused after the first MB (the limit gone): the rest at full speed
+        int reads = 0;
+        sw.Restart();
+        await AnalysisQueue.ReadThrough(file, buf, () => reads++ == 0 ? 1L << 20 : 0, CancellationToken.None);
+        Assert.InRange(sw.Elapsed.TotalSeconds, 0.9, 1.6);                                    // the first MB at 1 MB/s, then the rest at once
+    }
 }

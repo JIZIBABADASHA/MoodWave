@@ -30,6 +30,9 @@ public interface IMoodHost
     /// <summary>The ids of the track playing and the ones after it in the queue, at most <paramref name="count"/>.</summary>
     IReadOnlyList<string> Upcoming(int count);
 
+    /// <summary>Whether a track is playing now (not paused or stopped): the analysis reads the disk more gently then.</summary>
+    bool IsPlaying { get; }
+
     /// <summary>A value saved with the player's settings for this module, or null.</summary>
     JsonElement? GetSetting(string key);
 

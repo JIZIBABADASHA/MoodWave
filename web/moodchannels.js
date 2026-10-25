@@ -133,6 +133,10 @@
     box.append(ui.field('每首分析段數', '每首取幾段 10 秒的片段來分析。越多越準確，但也越慢；之後調高時只補算缺少的段落',
       ui.select([[0, `自動（${auto} 段）`], [6, '6 段（最快）'], [9, '9 段'], [12, '12 段（最準確）']], ai.segmentSetting || 0,
         v => MC.api.rpc('set', { aiSegments: +v }).then(set))));
+    // the analysis' disk speed while a track plays (the basic analysis' reader too): a USB hard disk is not starved
+    box.append(ui.field('限制分析速度', '播放時限制背景分析讀取硬碟的速度，避免和播放搶硬碟造成斷音（音樂放在 USB 外接硬碟時特別有用）；暫停或停止播放時照常全速分析',
+      ui.select([[4, '4 MB/s'], [8, '8 MB/s'], [16, '16 MB/s'], [0, '無限制']], ai.readLimit ?? 8,
+        v => MC.api.rpc('set', { readLimit: +v }).then(set))));
   }
 
   /** The sidebar's MoodWave link: only while MoodWave is on (leaving its page when it is turned off there). */
