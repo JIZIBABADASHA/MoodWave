@@ -148,8 +148,8 @@ public sealed class MoodService
             _refreshSoon = Guarded("library refresh", () => { _queue.Refresh(); _clap.Refresh(); });
             // a scan reports many changes in a row: rebuild the work list once things settle
             host.LibraryChanged += _onLibraryChanged = () => Soon(_refreshSoon, 3000);
-            // what is about to play first: playback events come in bursts, look once they settle
-            _upcomingSoon = Guarded("upcoming", PrioritizeUpcoming);
+            // what may play next is left alone: playback events come in bursts, look once they settle
+            _upcomingSoon = Guarded("upcoming", HoldUpcoming);
             host.PlaybackChanged += _onPlaybackChanged = () => Soon(_upcomingSoon, 400);
             _queue.Configure(Setting("enabled", true), Setting("threads", 1));
         }
@@ -488,13 +488,11 @@ public sealed class MoodService
     }
 
     /// <summary>
-    /// The track playing, the next few and the album's tracks after it (at most AlbumAhead) go to the front of the
-    /// analysis: its channels (and vote buttons) and the loudness the next tracks are levelled with are there by the
-    /// time they play. The track playing itself waits until another plays (SetPlaying).
+    /// The track playing, the next few and the rest of the playing track's album are left out of the analysis (and the
+    /// advanced AI) while they may play: the player streams them from the same disk, and on a USB hard disk the
+    /// analysis reading them alongside starves playback. Each is analysed once it is out of that set (SetPlaying).
     /// </summary>
-    const int AlbumAhead = 12;
-
-    void PrioritizeUpcoming()
+    void HoldUpcoming()
     {
         var q = _queue;
         if (q == null) return;
@@ -507,25 +505,16 @@ public sealed class MoodService
         var tracks = _host.Tracks;
         var byId = tracks.GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.First());   // ids may repeat
         var next = ids.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
-        // the track playing is left alone while it plays (the player is reading it), and analysed once another plays
-        string? playing = ids.Count > 0 && byId.TryGetValue(ids[0], out var p) ? p.Path : null;
-        q.SetPlaying(playing);
-        _clap?.SetPlaying(playing);
-        if (next.Count == 0) return;
-        var now = next[0];
-        string dir = Path.GetDirectoryName(now.Path ?? "") ?? "";
-        // the album in file order from the track playing on, wrapping round (a long box set is not read all at once)
-        var album = string.IsNullOrEmpty(now.Album) ? new List<MoodTrack>()
-            : tracks.Where(t => t.Album == now.Album && string.Equals(Path.GetDirectoryName(t.Path ?? ""), dir, StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(t => t.Path, StringComparer.OrdinalIgnoreCase).ToList();
-        int at = album.FindIndex(t => t.Id == now.Id);
-        if (at > 0) album = album.Skip(at).Concat(album.Take(at)).ToList();
-        album = album.Take(AlbumAhead + 1).ToList();
-        int moved = q.Prioritize(next.Concat(album).Select(t => t.Path));
-        if (moved > 0) _host.Log($"{moved} files about to play put first");
-        // the advanced AI: the track playing and the next ones (not the album: CLAP is slower, the radio needs these)
-        int clap = _clap?.Prioritize(next.Select(t => t.Path)) ?? 0;
-        if (clap > 0) _host.Log($"CLAP: {clap} files about to play put first");
+        var album = new List<MoodTrack>();
+        if (next.Count > 0 && !string.IsNullOrEmpty(next[0].Album))
+        {
+            var now = next[0];
+            string dir = Path.GetDirectoryName(now.Path ?? "") ?? "";
+            album = tracks.Where(t => t.Album == now.Album && string.Equals(Path.GetDirectoryName(t.Path ?? ""), dir, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        var held = next.Concat(album).Select(t => t.Path).Where(p => !string.IsNullOrEmpty(p)).ToList();
+        q.SetPlaying(held);
+        _clap?.SetPlaying(held);
     }
 
     void PostStatusSoon()

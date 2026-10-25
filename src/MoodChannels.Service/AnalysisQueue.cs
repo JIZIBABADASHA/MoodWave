@@ -16,8 +16,9 @@ namespace MoodChannels.Service;
 /// the next free worker takes it before the files read ahead. It goes through the reader like the rest: workers
 /// opening files on the disk themselves, side by side, keep its head seeking and starve the track playing from it.
 ///
-/// The track playing itself (SetPlaying) is left until it stops: the player is reading that file, and the reader and
-/// ffmpeg reading it too, on a USB hard disk, starve it. It is taken up again, where it was, once another plays.
+/// What is playing or may play next (SetPlaying) is left alone meanwhile: the player streams those files, and the
+/// reader and ffmpeg reading them too, on a USB hard disk, starve it. Each is taken up again, where it was, once it
+/// is out of that set.
 /// </summary>
 sealed class AnalysisQueue
 {
@@ -41,8 +42,8 @@ sealed class AnalysisQueue
     readonly Queue<Job> _ready = new();         // read ahead, waiting for a worker
     readonly Queue<Job> _urgent = new();        // about to play: read before everything else
     readonly Queue<Job> _readyUrgent = new();   // …and read, taken before _ready
-    readonly List<(Job Job, bool Urgent)> _held = new();   // the track playing: left until another plays
-    string? _playing;
+    readonly List<(Job Job, bool Urgent)> _held = new();   // playing or may play next: left until it is not
+    HashSet<string> _playing = new(StringComparer.OrdinalIgnoreCase);
     readonly SemaphoreSlim _readerSignal = new(0);
     readonly Timer _retry;                      // a file not stored (the database busy …): the work list made again later
     static readonly TimeSpan RetryAfter = TimeSpan.FromMinutes(1);
@@ -177,15 +178,14 @@ sealed class AnalysisQueue
     }
 
     /// <summary>
-    /// The file playing now (null: none): it is not read or analysed while it plays. Files left for it before are
-    /// put back first (about to play: with those; the rest: at the front of the work list).
+    /// The files playing now or that may play next: they are not read or analysed meanwhile. Files left before and
+    /// no longer in it are put back first (about to play: with those; the rest: at the front of the work list).
     /// </summary>
-    public void SetPlaying(string? path)
+    public void SetPlaying(IEnumerable<string> paths)
     {
         lock (_lock)
         {
-            if (string.Equals(path, _playing, StringComparison.OrdinalIgnoreCase)) return;
-            _playing = string.IsNullOrEmpty(path) ? null : path;
+            _playing = new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
             var back = _held.Where(h => !IsPlaying(h.Job.Path)).ToList();
             if (back.Count == 0) return;
             _held.RemoveAll(h => !IsPlaying(h.Job.Path));
@@ -199,7 +199,7 @@ sealed class AnalysisQueue
         Wake();
     }
 
-    bool IsPlaying(string path) => _playing != null && string.Equals(path, _playing, StringComparison.OrdinalIgnoreCase);
+    bool IsPlaying(string path) => _playing.Contains(path);
 
     public void SetPaused(bool paused) { lock (_lock) _paused = paused; Wake(); Changed?.Invoke(); }
 

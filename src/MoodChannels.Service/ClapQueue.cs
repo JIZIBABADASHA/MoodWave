@@ -12,6 +12,7 @@ namespace MoodChannels.Service;
 /// <item>the rest, in path order, only while the DSP analysis has nothing to do: the CLAP process reads the files
 ///       itself, and two readers on one hard disk keep its head seeking (and starve the track playing).</item>
 /// </list>
+/// What is playing or may play next (SetPlaying) is never taken meanwhile: it waits where it is.
 /// Two tracks are with the process at a time, so it decodes the next while the model runs. The process starts when
 /// there is work and stops after a minute without (its model takes 300 MB and more). Paused on its own (ai.pause).
 ///
@@ -45,7 +46,7 @@ sealed class ClapQueue
     readonly Queue<DateTime> _recent = new();
 
     bool _enabled, _paused, _gpu = true;
-    string? _playing;                               // the track playing: not taken while it plays
+    HashSet<string> _playing = new(StringComparer.OrdinalIgnoreCase);   // playing or may play next: not taken meanwhile
     int _threadSetting;                             // the model's threads on the processor; 0: half the cores
     int? _segmentSetting;
     int _total, _done;
@@ -149,8 +150,12 @@ sealed class ClapQueue
 
     public void SetPaused(bool paused) { lock (_lock) _paused = paused; Wake(); Changed?.Invoke(); }
 
-    /// <summary>The file playing now (null: none): it is left in the work lists until another plays.</summary>
-    public void SetPlaying(string? path) { lock (_lock) _playing = string.IsNullOrEmpty(path) ? null : path; Wake(); }
+    /// <summary>The files playing now or that may play next: they are left in the work lists meanwhile.</summary>
+    public void SetPlaying(IEnumerable<string> paths)
+    {
+        lock (_lock) _playing = new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
+        Wake();
+    }
 
     bool Active => _enabled && !_paused;
 
@@ -273,15 +278,15 @@ sealed class ClapQueue
     }
 
     /// <summary>
-    /// The next job: about to play, then fresh, then (while the DSP analysis is idle) the rest; never the track
-    /// playing (the process reading it too starves it), which waits where it is until another plays. Under _lock.
+    /// The next job: about to play, then fresh, then (while the DSP analysis is idle) the rest; never what is playing
+    /// or may play next (the process reading it too starves playback), which waits where it is. Under _lock.
     /// </summary>
     LinkedListNode<Job>? Next(bool dspBusy)
     {
         if (!_enabled || _model == null || _error != null) return null;
         foreach (var list in new[] { _urgent, Active ? _fresh : null, Active && !dspBusy ? _pending : null })
             for (var n = list?.First; n != null; n = n.Next)
-                if (_playing == null || !string.Equals(n.Value.Path, _playing, StringComparison.OrdinalIgnoreCase)) return n;
+                if (!_playing.Contains(n.Value.Path)) return n;
         return null;
     }
 
