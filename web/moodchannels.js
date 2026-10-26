@@ -544,6 +544,7 @@
    * with the pointer first; a trackpad's two-finger swipe (a sideways wheel) does it at once.
    */
   const SWIPE = { px: 90, wheel: 120 };
+  const FLING = 1.6;                                          // the least speed a 👎 cover flies out at, px per ms
 
   function coverSwipe() {
     const cover = document.getElementById('np-cover');
@@ -553,7 +554,7 @@
     let drag = null;
     cover.addEventListener('dragstart', e => { if (can()) e.preventDefault(); });
     cover.addEventListener('pointerdown', e => {
-      if (e.button === 0 && can()) drag = { x: e.clientX, y: e.clientY, id: e.pointerId, dx: 0, on: false };
+      if (e.button === 0 && can()) drag = { x: e.clientX, y: e.clientY, id: e.pointerId, dx: 0, on: false, moves: [] };
     });
     cover.addEventListener('pointermove', e => {
       if (!drag || e.pointerId !== drag.id) return;
@@ -566,6 +567,8 @@
         cover.classList.add('mc-dragging');
       }
       drag.dx = dx;
+      drag.moves.push({ t: e.timeStamp, x: e.clientX, y: e.clientY });   // the last 100 ms: how fast it was let go
+      while (drag.moves.length > 2 && e.timeStamp - drag.moves[0].t > 100) drag.moves.shift();
       cover.style.translate = `${dx}px 0`;
       cover.style.rotate = `${dx / 18}deg`;
     });
@@ -575,7 +578,7 @@
       drag = null;
       if (!d.on) return;
       cover.classList.remove('mc-dragging');
-      if (Math.abs(d.dx) >= SWIPE.px && e.type === 'pointerup') swipe(cover, Math.sign(d.dx));
+      if (Math.abs(d.dx) >= SWIPE.px && e.type === 'pointerup') swipe(cover, Math.sign(d.dx), flung(d.moves));
       else settle(cover);
     };
     cover.addEventListener('pointerup', end);
@@ -607,9 +610,8 @@
     cover.animate([dragged(cover), { translate: '0px 0px', rotate: '0deg' }], { duration: 380, easing: 'cubic-bezier(.2,.9,.3,1.25)' });
   }
 
-  /** The 👍 / 👎 flashing over the cover. */
-  function swipeBadge(cover, yes) {
-    const r = cover.getBoundingClientRect();
+  /** The 👍 / 👎 flashing in the middle of r, where the cover sits when not dragged nor turning. */
+  function swipeBadge(r, yes) {
     const b = h('div', { class: 'mc-swipe-badge ' + (yes ? 'yes' : 'no'), html: THUMB });
     b.style.left = r.left + r.width / 2 + 'px';
     b.style.top = r.top + r.height / 2 + 'px';
@@ -617,9 +619,16 @@
     b.addEventListener('animationend', () => b.remove());
   }
 
-  async function swipe(cover, dir) {
+  /** The pointer's speed as it was let go, in px per ms ({ x, y }); none for a pointer that had stopped. */
+  function flung(moves) {
+    const a = moves[0], b = moves[moves.length - 1], dt = b && b.t - a.t;
+    return dt > 0 ? { x: (b.x - a.x) / dt, y: (b.y - a.y) / dt } : null;
+  }
+
+  async function swipe(cover, dir, v) {
     MC.swiping = true;
     const id = App.state && App.state.trackId, from = dragged(cover);
+    const home = cover.getBoundingClientRect();              // its own place: the flip's perspective would skew this later
     try {
       if (dir > 0) {
         // 👍: back to its place and round once, the 👍 flashing as it faces front again
@@ -627,16 +636,20 @@
         pane.style.perspective = '1400px';
         const flip = cover.animate([from, { translate: '0px 0px', rotate: 'y 0deg', offset: .2 }, { rotate: 'y 180deg', offset: .6 }, { translate: '0px 0px', rotate: 'y 360deg' }],
           { duration: 620, easing: 'cubic-bezier(.3,.6,.3,1)' });
-        setTimeout(() => swipeBadge(cover, true), 380);
+        setTimeout(() => swipeBadge(home, true), 380);
         radioVote(1, true);
         await flip.finished.catch(() => {});
         pane.style.perspective = persp;
       } else {
-        // 👎: it drops away, the 👎 flashes where it was, and the next track's cover comes in
-        swipeBadge(cover, false);
-        const x = parseFloat(from.translate) || 0;
-        const fall = cover.animate([{ ...from, opacity: 1 }, { translate: `${x - 60}px 80vh`, rotate: '-28deg', opacity: 0 }],
-          { duration: 560, easing: 'cubic-bezier(.55,0,.85,.35)', fill: 'forwards' });
+        // 👎: it flies on out of the window as it was flung (at least FLING px/ms, to the left), the 👎 flashing where it
+        // was, and the next track's cover comes in
+        swipeBadge(home, false);
+        const x = parseFloat(from.translate) || 0, r = home;
+        const vx = Math.min(v ? v.x : 0, -FLING), vy = v ? Math.max(-1.5, Math.min(1.5, v.y)) : 0;
+        const ms = Math.min(700, Math.max(220, (r.right + 40) / -vx));   // to past the window's left edge at that speed
+        const spin = (parseFloat(from.rotate) || 0) + vx * ms / 12;
+        const fall = cover.animate([{ ...from, opacity: 1 }, { opacity: 1, offset: .7 }, { translate: `${x + vx * ms}px ${vy * ms}px`, rotate: `${spin}deg`, opacity: 0 }],
+          { duration: ms, easing: 'linear', fill: 'forwards' });
         radioVote(-1, true);
         await fall.finished.catch(() => {});
         for (let t = 0; t < 30 && App.state && App.state.trackId === id; t++) await new Promise(r => setTimeout(r, 50));
