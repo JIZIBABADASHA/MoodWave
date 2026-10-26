@@ -421,6 +421,10 @@ html:root.mc-radio #np-cover.mc-dragging { cursor: grabbing; }
 }
 /* the whole hint: in as the pulses start, out as they end (the 👎 / 👍 with them) */
 @keyframes mc-swipe-hint-show { 0%, 8% { opacity: 0; } 13%, 94% { opacity: 1; } 100% { opacity: 0; } }
+/* the mouse over the cover: the hint comes back at once, the « » pulsing until it leaves (moodchannels.js hintFade) */
+.mc-swipe-hint.hover { animation: mc-swipe-hint-in .25s ease-out both; }
+.mc-swipe-hint.hover .mc-chev { animation-delay: 0s; animation-iteration-count: infinite; }
+@keyframes mc-swipe-hint-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .mc-swipe-hint { display: none; } }
 /* the bar's radio label opens the now-playing page: the whole label answers the pointer (the 👍 / 👎 keep their own) */
 .mc-radio-band.mc-radio-open { cursor: pointer; outline: none; border-radius: 14px; }

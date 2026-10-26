@@ -624,21 +624,26 @@
       was = on;
       if (on && radioSource()) showHint(cover); else hintOff();
     }).observe(np, { attributes: true, attributeFilter: ['class'] });
+    cover.addEventListener('pointerenter', e => {
+      if (e.pointerType === 'mouse' && !e.buttons && !MC.swiping && np.classList.contains('on') && radioSource()) showHint(cover, true);
+    });
+    cover.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hintFade(); });
   }
 
-  function showHint(cover) {
+  /** hover: the mouse over the cover; the « » pulse until it leaves (hintFade). */
+  function showHint(cover, hover) {
     hintOff();
     const left = cover.parentElement;
     if (!left) return;
     const y = cover.offsetTop + cover.offsetHeight / 2, size = hintSize(cover);
     MC.hint = ['l', 'r'].map(side => {
       // » 👍 on the right, 👎 « on the left
-      const el = h('div', { class: 'mc-swipe-hint ' + side, 'aria-hidden': 'true', html: CHEVRONS + THUMB });
+      const el = h('div', { class: 'mc-swipe-hint ' + side + (hover ? ' hover' : ''), 'aria-hidden': 'true', html: CHEVRONS + THUMB });
       el.style.setProperty('--mc-hint', size + 'px');
       el.style.setProperty('--mc-pulses', HINT.pulses);
       el.style.top = y + 'px';
       el.style.left = (side === 'l' ? cover.offsetLeft - HINT.gap : cover.offsetLeft + cover.offsetWidth + HINT.gap) + 'px';
-      el.addEventListener('animationend', e => { if (e.target === el) el.remove(); });   // not the chevrons' pulses
+      if (!hover) el.addEventListener('animationend', e => { if (e.target === el) el.remove(); });   // not the chevrons' pulses
       left.append(el);
       return el;
     });
@@ -647,6 +652,17 @@
   function hintOff() {
     for (const el of MC.hint || []) el.remove();
     MC.hint = null;
+  }
+
+  /** The mouse gone from the cover: a hover hint fades away (the page-open one runs its course). */
+  function hintFade() {
+    const els = MC.hint;
+    if (!els || !els[0].classList.contains('hover')) return;
+    MC.hint = null;
+    for (const el of els) {
+      el.animate([{ opacity: getComputedStyle(el).opacity }, { opacity: 0 }], { duration: 250, easing: 'ease-out', fill: 'forwards' })
+        .finished.catch(() => {}).then(() => el.remove());
+    }
   }
 
   /** Where the drag left the cover, and the cover's own place again (the animation goes on from there). */
