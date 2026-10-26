@@ -362,9 +362,13 @@
     img.src = url;
   }
 
-  /** The now-playing page (the cover, the lyrics and MoodWave's wheel or label), from the bar's band or radio label. */
+  /**
+   * The now-playing page (the cover, the lyrics and MoodWave's wheel or label), from the bar's band or radio label.
+   * Over it already, with the bar brought back (MIKU's 「顯示播放列」): the bar goes away again, as a click on the bar does.
+   */
   function openNowPlaying() {
     if (!NowPlaying.open) NowPlaying.show();
+    else if (window.BarPeek && BarPeek.on) BarPeek.hide();
   }
 
   /** The bar's channel band. One element for the session: MIKU empties the slot on every new queue and it is put back. */
