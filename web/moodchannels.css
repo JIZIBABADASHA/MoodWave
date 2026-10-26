@@ -358,17 +358,70 @@ html:root[data-ext-source="moodchannels"].mc-radio #np.nolyrics .np-wrap { paddi
   html:root[data-ext-source="moodchannels"].mc-radio #np .np-wrap, html:root[data-ext-source="moodchannels"].mc-radio #np.nolyrics .np-wrap { padding-left: 6vw; padding-right: 6vw; }
   .mc-radio-rail { display: none; }
 }
-/* a radio's 👍 / 👎: after its name, in the colours of where they sit (the bar keeps its theme; the now-playing page its ink) */
-:is(.mc-radio-band, .mc-radio-rail) > .mc-votes { position: static; transform: none; margin-left: 4px; flex: none; }
-:is(.mc-radio-band, .mc-radio-rail) .mc-vote { color: inherit; background: color-mix(in srgb, currentColor 9%, transparent);
+/* a radio's 👍 / 👎 on the bar: after its name, in the bar's colours (the now-playing page has the swipe on the cover) */
+.mc-radio-band > .mc-votes { position: static; transform: none; margin-left: 4px; flex: none; }
+.mc-radio-band .mc-vote { color: inherit; background: color-mix(in srgb, currentColor 9%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 22%, transparent); }
-:is(.mc-radio-band, .mc-radio-rail) .mc-vote:hover { background: color-mix(in srgb, currentColor 18%, transparent); }
-:is(.mc-radio-band, .mc-radio-rail) .mc-vote[aria-pressed="true"] { color: #fff; }
+.mc-radio-band .mc-vote:hover { background: color-mix(in srgb, currentColor 18%, transparent); }
+.mc-radio-band .mc-vote[aria-pressed="true"] { color: #fff; }
 .mc-radio-band { color: var(--text); }
 .mc-radio-band .mc-vote { width: 28px; height: 28px; }
 .mc-radio-band .mc-vote .i { width: 15px; height: 15px; }
 .mc-radio-band { max-width: 300px; }
 .mc-radio-rail .mc-radio-text { flex: 1; }
+/* the page's label has room for the whole name: up to three lines under the kind */
+.mc-radio-rail { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; }
+.mc-radio-rail .mc-radio-text b { font-size: 20px; line-height: 1.25; white-space: normal; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+@media (max-width: 1100px) { .mc-radio-rail { display: none; } }   /* as above: the grid would otherwise bring it back */
+/* a swipe on the now-playing cover while a radio plays (moodchannels.js coverSwipe): 👍 to the right, 👎 to the left */
+html:root.mc-radio #np-cover { cursor: grab; touch-action: pan-y; }
+html:root.mc-radio #np-cover.mc-dragging { cursor: grabbing; }
+/* meanwhile the page's content over #np-ext (z-index 2, before it in the page), so the cover goes over the radio label;
+   the page's top bar (z-index 3) stays above */
+#np.mc-swiping .np-wrap { z-index: 2; }
+.mc-swipe-badge { position: fixed; z-index: 10000; width: 128px; height: 128px; margin: -64px 0 0 -64px; border-radius: 50%;
+  display: grid; place-items: center; color: #fff; pointer-events: none; animation: mc-swipe-badge .9s cubic-bezier(.2,.9,.3,1.2) forwards; }
+.mc-swipe-badge.yes { background: var(--teal); box-shadow: 0 0 0 5px rgba(255,255,255,.55), 0 0 48px color-mix(in srgb, var(--teal) 70%, transparent); }
+.mc-swipe-badge.no { background: #e0567a; box-shadow: 0 0 0 5px rgba(255,255,255,.55), 0 0 48px rgba(224,86,122,.7); }
+.mc-swipe-badge.off { animation: mc-swipe-badge-off 1s linear forwards; }   /* lit as .yes to begin with */
+.mc-swipe-badge .i { width: 60px; height: 60px; stroke-width: 2; transform: translate(-.92%, 2.33%); }   /* THUMB is drawn at (12.22, 11.44) of 24: centred */
+.mc-swipe-badge.no .i { transform: rotate(180deg) translate(-.92%, 2.33%); }
+@keyframes mc-swipe-badge {
+  0% { opacity: 0; transform: scale(.3); } 25% { opacity: 1; transform: scale(1.15); } 45% { transform: scale(.96); }
+  75% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.08); }
+}
+/* a 👍 taken back: the lit 👍 comes as a like's does and stays lit a moment, then goes out like a lamp switched off (the
+   glow and the teal gone at once to a dim grey), stays so a moment and fades: about a second, in place */
+@keyframes mc-swipe-badge-off {
+  0% { opacity: 0; transform: scale(.4); animation-timing-function: cubic-bezier(.2, .9, .3, 1.2); } 15% { opacity: 1; transform: scale(1.06); }
+  22% { transform: none; }
+  50% { opacity: 1; transform: none; filter: none; background: var(--teal); box-shadow: 0 0 0 5px rgba(255,255,255,.55), 0 0 48px color-mix(in srgb, var(--teal) 70%, transparent); }
+  59%, 75% { opacity: 1; transform: none; filter: brightness(.8); background: rgb(96,100,104); box-shadow: 0 0 0 5px rgba(255,255,255,.18), 0 0 0 transparent; }
+  100% { opacity: 0; transform: none; filter: brightness(.8); background: rgb(96,100,104); box-shadow: 0 0 0 5px rgba(255,255,255,0), 0 0 0 transparent; }
+}
+@keyframes mc-swipe-badge-dim { 0% { opacity: .9; } 100% { opacity: 0; background: rgb(96,100,104); box-shadow: none; } }
+@media (prefers-reduced-motion: reduce) { .mc-swipe-badge.off { animation: mc-swipe-badge-dim .6s ease-out forwards; } }
+/* the cover can be swiped: a faint » 👍 right of it and 👎 « left of it, in the page's ink and MIKU's icon strokes, as the
+   page opens (moodchannels.js swipeHint): the « » pulse outwards --mc-pulses times while the 👎 / 👍 stay still, then all
+   fade together. Icons only. --mc-hint: the chevrons' size, from the cover's */
+.mc-swipe-hint { position: absolute; z-index: 1; display: flex; align-items: center; gap: calc(var(--mc-hint, 24px) * .25);
+  pointer-events: none; opacity: 0; color: rgb(var(--np-ink, 255, 255, 255));
+  animation: mc-swipe-hint-show calc(.7s + 1.5s * var(--mc-pulses, 5)) linear both; }
+.mc-swipe-hint svg { display: block; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.mc-swipe-hint .mc-chev { width: var(--mc-hint, 24px); height: var(--mc-hint, 24px); opacity: 0;
+  animation: mc-swipe-hint 1.5s ease-in-out .7s var(--mc-pulses, 5) both; }
+.mc-swipe-hint .i { width: calc(var(--mc-hint, 24px) * .75); height: calc(var(--mc-hint, 24px) * .75); opacity: .38; }
+.mc-swipe-hint.r { transform: translateY(-50%); --mc-nudge: 7px; }
+.mc-swipe-hint.l { transform: translate(-100%, -50%); flex-direction: row-reverse; --mc-nudge: -7px; }
+.mc-swipe-hint.l .mc-chev { transform: scaleX(-1); }
+.mc-swipe-hint.l .i { transform: rotate(180deg); }
+@keyframes mc-swipe-hint {
+  0% { opacity: 0; translate: 0 0; } 45% { opacity: .38; } 70% { translate: var(--mc-nudge) 0; } 100% { opacity: 0; translate: var(--mc-nudge) 0; }
+}
+/* the whole hint: in as the pulses start, out as they end (the 👎 / 👍 with them) */
+@keyframes mc-swipe-hint-show { 0%, 8% { opacity: 0; } 13%, 94% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .mc-swipe-hint { display: none; } }
 /* the bar's radio label opens the now-playing page: the whole label answers the pointer (the 👍 / 👎 keep their own) */
 .mc-radio-band.mc-radio-open { cursor: pointer; outline: none; border-radius: 14px; }
 .mc-radio-open:focus-visible { box-shadow: inset 0 0 0 2px currentColor; }
