@@ -348,7 +348,9 @@ sealed class Radio
             bool SameSong(MoodTrack t) => SongKeys(t).Any(songs.Contains);
             var albums = new HashSet<string>(tail.Skip(Math.Max(0, tail.Count - AlbumGap)).Select(AlbumKey));
             var ok = pool.Where(x => !artists.Contains(Norm(x.T.Artist)) && !SameSong(x.T) && !albums.Contains(AlbumKey(x.T))).ToList();
-            if (ok.Count == 0) ok = pool.Where(x => !SameSong(x.T)).ToList();   // the artist and album rules give way first
+            // the rules give way one at a time: the artist's first, then the album's (an album's radio keeps its tracks apart)
+            if (ok.Count == 0) ok = pool.Where(x => !SameSong(x.T) && !albums.Contains(AlbumKey(x.T))).ToList();
+            if (ok.Count == 0) ok = pool.Where(x => !SameSong(x.T)).ToList();
             if (ok.Count == 0) break;                         // only the same songs left: fewer rather than a repeat
             var top = ok.Take(Top).ToList();
             // 5 drawn from the best 20, the better the likelier, then the one that follows the previous track best
