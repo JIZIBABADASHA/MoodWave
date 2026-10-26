@@ -31,6 +31,9 @@ Two parts, each switched on and off on its own:
 
 ## How it works
 
+The full behaviour (channels, radio, Smart Playlist, the queue, settings, data) is in `docs/spec.en.md`
+(Simplified Technical English), with a Chinese translation in `docs/spec.zh-TW.md`.
+
 ```
 audio file ─ ffmpeg ─> 16 kHz mono ─> DSP descriptors ─> channel models (trees) ─> channels, BPM, key
 ```
