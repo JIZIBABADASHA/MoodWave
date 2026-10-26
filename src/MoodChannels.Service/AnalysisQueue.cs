@@ -15,6 +15,9 @@ namespace MoodChannels.Service;
 /// What is about to play goes first (Prioritize), even while the analysis is paused: the reader reads it next and
 /// the next free worker takes it before the files read ahead. It goes through the reader like the rest: workers
 /// opening files on the disk themselves, side by side, keep its head seeking and starve the track playing from it.
+///
+/// The listener may limit the reader's speed while a track plays (readLimit): it then reads 1 MB at a time with pauses
+/// between, so the player's reads from the same disk (a USB hard disk) never wait behind long ones.
 /// </summary>
 sealed class AnalysisQueue
 {
@@ -68,9 +71,34 @@ sealed class AnalysisQueue
         }
     }
 
-    public AnalysisQueue(AnalysisStore store, Analyzer analyzer, Func<IReadOnlyList<MoodTrack>> tracks, Func<string?> ffmpeg, Action<string> log)
+    /// <summary>Bytes a second the reader may read now (0: as fast as the disk goes); asked before each read.</summary>
+    readonly Func<long> _readLimit;
+    const int LimitedRead = 1 << 20;            // reads while limited: small, so the player's own reads get in between
+
+    /// <summary>
+    /// Reads a whole file into the system file cache, in large reads, or while <paramref name="limit"/> gives a speed
+    /// (bytes a second, asked before each read) 1 MB at a time with a pause after each that keeps to it.
+    /// </summary>
+    internal static async Task ReadThrough(string path, byte[] buf, Func<long> limit, CancellationToken stop)
+    {
+        using var f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.Asynchronous);
+        while (true)
+        {
+            long bps = limit();
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            int n = await f.ReadAsync(buf.AsMemory(0, bps > 0 ? Math.Min(LimitedRead, buf.Length) : buf.Length), stop);
+            if (n <= 0) break;
+            if (bps <= 0) continue;
+            var wait = TimeSpan.FromSeconds((double)n / bps) - System.Diagnostics.Stopwatch.GetElapsedTime(t0);
+            if (wait > TimeSpan.Zero) await Task.Delay(wait, stop);
+        }
+    }
+
+    public AnalysisQueue(AnalysisStore store, Analyzer analyzer, Func<IReadOnlyList<MoodTrack>> tracks, Func<string?> ffmpeg, Action<string> log,
+                         Func<long>? readLimit = null)
     {
         (_store, _analyzer, _tracks, _ffmpeg, _log) = (store, analyzer, tracks, ffmpeg, log);
+        _readLimit = readLimit ?? (() => 0);
         _retry = new Timer(_ =>
         {
             try { if (!_stop.IsCancellationRequested) Refresh(); }
@@ -210,8 +238,7 @@ sealed class AnalysisQueue
             }
             try
             {
-                using var f = new FileStream(job.Path!, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.Asynchronous);
-                while (await f.ReadAsync(buf, _stop.Token) > 0) { }
+                await ReadThrough(job.Path, buf, _readLimit, _stop.Token);
             }
             catch (OperationCanceledException) { break; }
             catch (Exception) { }                     // unreadable: the worker's ffmpeg reports why

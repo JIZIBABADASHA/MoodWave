@@ -57,6 +57,14 @@ public sealed class MoodChannelsExtension : IMikuExtension, ILoudnessProvider, I
         // an older MIKU has no Upcoming: the call fails here (MissingMethodException), and the service does without
         public IReadOnlyList<string> Upcoming(int count) => _h.Upcoming(count);
 
+        // an older MIKU has no IsPlaying either: taken as not playing (the analysis reads at full speed, as it did)
+        public bool IsPlaying
+        {
+            get { try { return Playing(); } catch (MissingMethodException) { return false; } }
+        }
+
+        bool Playing() => _h.IsPlaying;
+
         public JsonElement? GetSetting(string key) => _h.GetSetting(key);
         public void SetSetting(string key, object value) => _h.SetSetting(key, value);
         public void Log(string message) => _h.Log(message);

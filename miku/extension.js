@@ -53,10 +53,11 @@ function sendTracks() {
 function sendUpcoming() {
   if (!host || typeof host.upcoming !== 'function') return;
   const ids = host.upcoming(UPCOMING) || [];
-  const key = ids.join('|');
+  const playing = !!host.isPlaying;                       // the analysis reads the disk more gently while it is
+  const key = ids.join('|') + (playing ? '|>' : '|=');
   if (key === lastUpcoming) return;
   lastUpcoming = key;
-  send({ op: 'upcoming', ids });
+  send({ op: 'upcoming', ids, playing });
 }
 
 function onLine(line) {

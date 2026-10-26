@@ -90,6 +90,31 @@ public class RadioTests : IDisposable
     }
 
     [Fact]
+    public void With_only_the_same_artist_left_an_albums_tracks_still_stay_apart()
+    {
+        var store = new AnalysisStore(_dir);
+        store.Load();
+        var radio = new Radio(store, () => "m", _ => 120, _ => { });
+        // one artist only: the artist rule leaves nothing; the album track is the closest to the seed by far
+        var a0 = new MoodTrack("a0", "/m/a0.flac", "Album A", 200, 1, 1, "A0", "X");
+        var a1 = new MoodTrack("a1", "/m/a1.flac", "Album A", 200, 1, 1, "A1", "X");
+        var b1 = new MoodTrack("b1", "/m/b1.flac", "Album B", 200, 1, 1, "B1", "X");
+        var near = Vec(1).Select(x => x + 0.001f).ToArray();
+        foreach (var (t, v) in new[] { (a0, Vec(1)), (a1, near), (b1, Vec(2)) })
+        {
+            store.Put(t.Path, new Entry { Size = 1, Mtime = 1, Dsp = Dsp.DspFeatures.Version, Ok = true, Duration = 200, At = DateTime.UtcNow, Ch = new[] { 1 } });
+            store.AddClap(t.Path, 1, 1, "m", 1, new List<(int, float[])> { (0, v) });
+        }
+        var library = new[] { a0, a1, b1 };
+        for (int k = 0; k < 20; k++)
+        {
+            var picks = radio.Next(new[] { new Radio.Seed(a0, 1) }, new[] { a0 }, 1, library);
+            Assert.Equal("b1", Assert.Single(picks).Track.Id);   // not a1 right after a0: the album rule holds while it can
+        }
+        store.Dispose();
+    }
+
+    [Fact]
     public void A_tempo_is_worked_out_again_for_a_file_analysed_again()
     {
         var store = new AnalysisStore(_dir);

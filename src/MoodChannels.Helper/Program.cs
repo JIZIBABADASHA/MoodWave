@@ -3,7 +3,7 @@
 //
 //   in   {"op":"start", "dataDir", "moduleDir", "ffmpeg", "settings":{…}}   once, first
 //        {"op":"tracks", "tracks":[{id, path, album, duration, size, mtime}, …]}   the library, again after a change
-//        {"op":"upcoming", "ids":[…]}                                        the track playing and the next ones
+//        {"op":"upcoming", "ids":[…], "playing"}                             the track playing and the next ones; playing or not
 //        {"op":"played", "id", "seconds", "duration", "skipped", "stopped", "source"}   a track stopped playing
 //        {"op":"rpc", "id":n, "method", "args"}                              the page's ext.moodchannels.* calls
 //        {"op":"continue", "id":n, "played":[ids], "source", "chosen"}       what to add after the queue's last track (answered like rpc)
@@ -107,7 +107,7 @@ while ((line = stdin.ReadLine()) != null)
                 host.Played(m!);
                 break;
             case "upcoming" when host != null:
-                host.SetUpcoming(m!["ids"]!.AsArray().Select(x => (string)x!).ToList());
+                host.SetUpcoming(m!["ids"]!.AsArray().Select(x => (string)x!).ToList(), (bool?)m["playing"] ?? false);
                 break;
             case "rpc":
             {
@@ -163,11 +163,15 @@ sealed class Host : IMoodHost
         LibraryChanged?.Invoke();
     }
 
-    public void SetUpcoming(List<string> ids)
+    public void SetUpcoming(List<string> ids, bool playing)
     {
         Volatile.Write(ref _upcoming, ids);
+        _playing = playing;
         PlaybackChanged?.Invoke();
     }
+
+    volatile bool _playing;
+    public bool IsPlaying => _playing;
 
     public JsonElement? GetSetting(string key)
     {

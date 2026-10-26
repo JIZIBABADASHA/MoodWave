@@ -61,10 +61,19 @@ sealed class ClapQueue
 
     public event Action? Changed;
 
+    /// <summary>
+    /// The analysis speed limit now (bytes a second, 0: none): while there is one, a file not in the file cache is read
+    /// into it at that speed first (AnalysisQueue.ReadThrough, one at a time), so the CLAP process, which reads files
+    /// itself at full speed, finds it in memory.
+    /// </summary>
+    readonly Func<long> _readLimit;
+    readonly SemaphoreSlim _warming = new(1);
+
     public ClapQueue(AnalysisStore store, Func<IReadOnlyList<MoodTrack>> tracks, Func<string?> ffmpeg, Func<bool> dspBusy,
-                     Func<string?> model, string moduleDir, Action<string> log)
+                     Func<string?> model, string moduleDir, Action<string> log, Func<long>? readLimit = null)
     {
         (_store, _tracks, _ffmpeg, _dspBusy, _downloaded, _moduleDir, _log) = (store, tracks, ffmpeg, dspBusy, model, moduleDir, log);
+        _readLimit = readLimit ?? (() => 0);
         _retry = new Timer(_ =>
         {
             try { if (!_stop.IsCancellationRequested) Refresh(); }
@@ -268,12 +277,16 @@ sealed class ClapQueue
         return moved;
     }
 
-    /// <summary>The next job: about to play, then fresh, then (while the DSP analysis is idle) the rest.</summary>
-    bool TryTake(bool dspBusy, out Job job)
+    /// <summary>
+    /// The next job: about to play, then fresh, then (while the DSP analysis is idle) the rest. cached: a fresh one, in
+    /// the file cache already (the DSP analysis has just read it).
+    /// </summary>
+    bool TryTake(bool dspBusy, out Job job, out bool cached)
     {
         lock (_lock)
         {
             job = default;
+            cached = false;
             if (!_enabled || _model == null || _error != null) return false;
             LinkedList<Job>? from = _urgent.Count > 0 ? _urgent
                 : !Active ? null
@@ -282,8 +295,25 @@ sealed class ClapQueue
             if (from == null) return false;
             job = from.First!.Value;
             from.RemoveFirst();
+            cached = from == _fresh;
             _running.Add(job.Path);
             return true;
+        }
+    }
+
+    /// <summary>A job to the process; under the analysis speed limit its file read into the file cache at that speed first.</summary>
+    Task<ClapClient.Result> Embed(ClapClient client, Job job, int segments, int have, bool cached)
+    {
+        if (cached || _readLimit() <= 0) return client.Embed(job.Path, segments, have);
+        return Warm();
+
+        async Task<ClapClient.Result> Warm()
+        {
+            await _warming.WaitAsync(_stop.Token);
+            try { await AnalysisQueue.ReadThrough(job.Path, new byte[1 << 20], _readLimit, _stop.Token); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { }   // unreadable: the process says why
+            finally { _warming.Release(); }
+            return await client.Embed(job.Path, segments, have);
         }
     }
 
@@ -305,12 +335,12 @@ sealed class ClapQueue
                 if (inFlight.Count < InFlight && HasWork(busy))
                 {
                     var client = _client ?? await StartClient();
-                    while (client != null && inFlight.Count < InFlight && TryTake(busy, out var job))
+                    while (client != null && inFlight.Count < InFlight && TryTake(busy, out var job, out bool cached))
                     {
                         var c = _store.Clap(job.Path);
                         int segments = Segments;
                         int have = c != null && AnalysisStore.Current(c, job.Size, job.Mtime, _model!) && c.Error == null ? c.Mask : 0;
-                        inFlight.Add((job, segments, client.Embed(job.Path, segments, have)));
+                        inFlight.Add((job, segments, Embed(client, job, segments, have, cached)));
                     }
                 }
                 if (inFlight.Count == 0)
