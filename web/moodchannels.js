@@ -562,7 +562,8 @@
     v.vote = 0;
     v.votes.hidden = false;
     v.votes.classList.add('mc-qvotes');
-    v.votes.ondblclick = e => e.stopPropagation();          // not MIKU's row: a double click there plays the row
+    // not MIKU's row: a click there (between the buttons too) plays the row; a double click in older MIKUs
+    v.votes.onclick = v.votes.ondblclick = e => e.stopPropagation();
     showRowVote(v, t);
     el.append(v.votes);
     // the rows' votes asked for together, once the drawer is drawn
