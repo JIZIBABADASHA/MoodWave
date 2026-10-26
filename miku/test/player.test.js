@@ -219,6 +219,27 @@ const tick = () => sleep(20);
     for (const al of lib.albums) for (const t of al.tracks) lib.tracks.set(t.id, t);
   });
 
+  await group('previous / next while paused: the module still asked at its last track', async () => {
+    let n = 0;
+    const m = module(() => Promise.resolve([['a3t1'], ['a3t2'], ['a3t3']][n++] || []));
+    const src = { ext: 'moodchannels', radio: { kind: 'track', name: 'x', seeds: ['a1t1'] } };
+    const { p, engine } = make({ autoContinue: 'off' }); p.continuation = m.c;
+    await p.playList(['a1t1', 'a2t2'], 1, false, 0, src); await tick();
+    check('(one pick after the track playing)', p.queue.join() === 'a1t1,a2t2,a3t1' && m.asks.length === 1, p.queue);
+    engine.isPlaying = false;                              // paused
+    await p.previous(); await p.next(); await tick();
+    check('back and on again while paused, not at the last track: not asked', m.asks.length === 1 && p.index === 1, { asks: m.asks.length, i: p.index });
+    await p.next(); await tick();
+    check('on to the last track while paused: asked, its pick added', m.asks.length === 2 && p.queue.join() === 'a1t1,a2t2,a3t1,a3t2' && !engine.isPlaying,
+      { asks: m.asks.length, q: p.queue, playing: engine.isPlaying });
+    // no module: random songs do not come while paused (they come when it plays, as before)
+    const r = make({ autoContinue: 'tracks' });
+    await r.p.playList(['a1t1', 'a1t2', 'a1t3'], 0, false);
+    r.engine.isPlaying = false;
+    await r.p.next(); await r.p.next();
+    check('no module, paused at the last track: nothing added', r.p.queue.join() === 'a1t1,a1t2,a1t3', r.p.queue);
+  });
+
   await group('\'played\': what the module is told', async () => {
     const { p, engine, played } = make({ autoContinue: 'off' });
     const src = { ext: 'moodchannels', channel: 3 };
