@@ -600,16 +600,15 @@
       swipe(cover, -Math.sign(sum));
     }, { passive: false });
     swipeHint(cover);
-    coverVotes(cover, can);
   }
 
   /*
-   * That the cover can be swiped: each time the now-playing page opens while a radio plays, a faint « and » beside the
-   * cover pulse outwards a few times (moodchannels.css mc-swipe-hint), then go; a swipe meanwhile takes them away at once.
-   * Further out a faint 👎 and 👍 stay (coverVotes). Placed by the cover's own layout place in .np-left (offsetLeft /
-   * offsetTop: not moved by the page sliding in nor by a swipe).
+   * That the cover can be swiped: each time the now-playing page opens while a radio plays, a faint 👎 « and » 👍 beside
+   * the cover (moodchannels.css mc-swipe-hint): the « » pulse outwards a few times while the 👎 / 👍 stay still, then
+   * all go together; a swipe meanwhile takes them away at once. Icons only, not buttons: the swipe is the vote. Placed
+   * by the cover's own layout place in .np-left (offsetLeft / offsetTop: not moved by the page sliding in).
    */
-  const HINT = { gap: 22, pulses: 5, thumbGap: 6 };
+  const HINT = { gap: 22, pulses: 5 };
   const CHEVRONS = '<svg class="mc-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6l6 6-6 6M12 6l6 6-6 6"/></svg>';
   /** The chevrons' size, from the cover's. */
   const hintSize = cover => Math.round(Math.min(28, Math.max(18, cover.offsetWidth * .05)));
@@ -622,7 +621,6 @@
       const on = np.classList.contains('on');
       if (on === was) return;
       was = on;
-      if (on) placeCoverVotes(cover);
       if (on && radioSource()) showHint(cover); else hintOff();
     }).observe(np, { attributes: true, attributeFilter: ['class'] });
   }
@@ -633,48 +631,16 @@
     if (!left) return;
     const y = cover.offsetTop + cover.offsetHeight / 2, size = hintSize(cover);
     MC.hint = ['l', 'r'].map(side => {
-      const el = h('div', { class: 'mc-swipe-hint ' + side, html: CHEVRONS });
+      // » 👍 on the right, 👎 « on the left
+      const el = h('div', { class: 'mc-swipe-hint ' + side, 'aria-hidden': 'true', html: CHEVRONS + THUMB });
       el.style.setProperty('--mc-hint', size + 'px');
+      el.style.setProperty('--mc-pulses', HINT.pulses);
       el.style.top = y + 'px';
       el.style.left = (side === 'l' ? cover.offsetLeft - HINT.gap : cover.offsetLeft + cover.offsetWidth + HINT.gap) + 'px';
-      el.style.animationIterationCount = HINT.pulses;
-      el.addEventListener('animationend', () => el.remove());
+      el.addEventListener('animationend', e => { if (e.target === el) el.remove(); });   // not the chevrons' pulses
       left.append(el);
       return el;
     });
-  }
-
-  /*
-   * The page's 👎 / 👍 for the radio's track: faint beside the cover, past the chevrons, while the vote is known (as the
-   * bar's pair: setRadioVotes shows them and lights the track's vote). A click votes as a swipe does, the cover answering
-   * the same way; 👎 on a track already 👎 takes it back, as the bar's does.
-   */
-  function coverVotes(cover, can) {
-    const left = cover.parentElement;
-    if (!left || MC.coverVotes) return;
-    const press = (e, v) => {
-      e.stopPropagation();
-      hintOff();
-      const cur = MC.radioVote && MC.radioVote.id === (App.state && App.state.trackId) ? MC.radioVote.v : 0;
-      if (can() && !(v < 0 && cur < 0)) swipe(cover, v); else radioVote(v);
-    };
-    const no = h('button', { class: 'mc-cover-vote no', 'aria-pressed': 'false', html: THUMB, onclick: e => press(e, -1) });
-    const yes = h('button', { class: 'mc-cover-vote yes', 'aria-pressed': 'false', html: THUMB, onclick: e => press(e, 1) });
-    const x = MC.coverVotes = { votes: h('div', { class: 'mc-cover-votes', hidden: true }, no, yes), yes, no };
-    left.append(x.votes);
-    MC.radioVotes = (MC.radioVotes || []).filter(v => v.votes.isConnected).concat([x]);
-    new ResizeObserver(() => placeCoverVotes(cover)).observe(cover);
-    placeCoverVotes(cover);
-  }
-
-  function placeCoverVotes(cover) {
-    const x = MC.coverVotes;
-    if (!x || !cover.offsetWidth) return;
-    const size = hintSize(cover), out = HINT.gap + size + HINT.thumbGap;
-    x.votes.style.setProperty('--mc-hint', size + 'px');
-    for (const b of [x.no, x.yes]) b.style.top = cover.offsetTop + cover.offsetHeight / 2 + 'px';
-    x.no.style.left = cover.offsetLeft - out + 'px';
-    x.yes.style.left = cover.offsetLeft + cover.offsetWidth + out + 'px';
   }
 
   function hintOff() {
