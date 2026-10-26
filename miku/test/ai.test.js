@@ -219,6 +219,10 @@ console.log(`helper  ${exe}\nmodel   ${version}\nwork    ${work}\n${os.platform(
     check('radio.next: one pick', n.ids.length === 1 && clean(n.ids) && n.ids[0] !== trackRadio.ids[0], show(n.ids));
     m = await h.rpc('radio.vote.many', { ids: n.ids, source: src });
     check('… known as a pick', m.picked.includes(n.ids[0]), m.picked);
+    // a radio started from a track a radio picked before: that track is the listener's own now, not a pick
+    const again = await h.rpc('radio.start', { kind: 'track', ids: [n.ids[0]], name: 'again' });
+    m = await h.rpc('radio.vote.many', { ids: again.ids, source: { ...again.source, ext: 'moodchannels' } });
+    check('a radio from an earlier pick: its own track no longer a pick', again.ok && !m.picked.includes(n.ids[0]), m.picked);
     // a channel: one track of it at random, not one played (helper.test.js checks it is the channel's)
     const ch = await h.rpc('radio.next', { played: [trackRadio.ids[0]], source: { channel: 2, ext: 'moodchannels' } });
     check('radio.next for a channel: at most one, not one played', ch.ids.length <= 1 && !ch.ids.includes(trackRadio.ids[0]), ch);

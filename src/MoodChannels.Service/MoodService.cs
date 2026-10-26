@@ -440,6 +440,8 @@ public sealed class MoodService
 
     bool WasPicked(string id) { lock (_picked) return _picked.Contains(id); }
 
+    void Unpicked(string id) { lock (_picked) _picked.Remove(id); }
+
     IReadOnlyList<string> PickNext(IReadOnlyList<string> played, JsonElement? source, bool chosen)
     {
         IReadOnlyList<string> none = Array.Empty<string>();
@@ -569,6 +571,7 @@ public sealed class MoodService
         var picks = _radio!.Next(seeds, first, PickCount, tracks, null, seedsPlay: kind == "album", avoid: avoid);
         int waiting = seeds.Count(s => !_radio.Has(s.Track.Path));
         if (waiting > 0) _clap?.Prioritize(seeds.Select(s => s.Track.Path));
+        Unpicked(start.Id);                              // the listener's own track now, though a radio picked it before
         Picked(picks.Select(p => p.Track.Id).ToList());
         var list = first.Concat(picks.Select(p => p.Track)).Select(t => t.Id).ToList();
         _host.Log($"radio: {kind} radio \"{name}\" from {seeds.Count} seeds, {picks.Count} picked" + (waiting > 0 ? $", {waiting} seeds not embedded yet" : ""));
