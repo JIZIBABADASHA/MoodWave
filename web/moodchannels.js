@@ -470,20 +470,21 @@
   }
 
   /**
-   * What radio plays: the mark, the kind (歌曲電台 / 專輯電台 / 歌手電台) and what it started from, then 👍 / 👎 on the
-   * track playing; on the bar and the now-playing page.
+   * What radio plays: the mark, the kind (歌曲電台 / 專輯電台 / 歌手電台) and what it started from; on the bar and the
+   * now-playing page. On the bar 👍 / 👎 on the track playing follow it; on the page a swipe on the cover is the vote
+   * (coverSwipe), and the track's vote is still asked for, which the swipe needs.
    */
   function radioLabel(radio, cls, logoCls) {
-    const v = voteButtons(radioVote);
-    MC.radioVotes = (MC.radioVotes || []).filter(x => x.votes.isConnected).concat([v]);
     // on the bar the label opens the now-playing page, as the channel band does (👍 / 👎 stay votes)
     const open = cls === 'mc-radio-band';
+    const v = open && voteButtons(radioVote);
+    if (v) MC.radioVotes = (MC.radioVotes || []).filter(x => x.votes.isConnected).concat([v]);
     const el = h('div', { class: cls + (open ? ' mc-radio-open' : ''), role: open && 'link', tabindex: open && 0,
       title: radio.kind === 'smart' ? 'MoodWave Smart Playlist' : `MoodWave ${RADIO_KIND[radio.kind] || '電台'}：${radio.name || ''}`,
       onclick: open && openNowPlaying, onkeydown: open && (e => { if (e.target === el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openNowPlaying(); } }) },
       h('span', { class: 'mc-radio-mark', html: logo(logoCls) }),
       h('span', { class: 'mc-radio-text' }, h('small', null, RADIO_KIND[radio.kind] || '電台'), h('b', null, radio.name || '')),
-      v.votes);
+      v && v.votes);
     refreshRadioVotes();
     return el;
   }
@@ -563,6 +564,7 @@
         if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { drag = null; return; }   // up or down: not a swipe
         if (Math.abs(dx) < 8) return;
         drag.on = true;
+        hintOff();
         cover.setPointerCapture(e.pointerId);
         cover.classList.add('mc-dragging');
       }
@@ -594,8 +596,52 @@
       sum += e.deltaX;
       if (Math.abs(sum) < SWIPE.wheel) return;
       done = true;
+      hintOff();
       swipe(cover, -Math.sign(sum));
     }, { passive: false });
+    swipeHint(cover);
+  }
+
+  /*
+   * That the cover can be swiped: each time the now-playing page opens while a radio plays, a faint 👎 « and » 👍 beside the
+   * cover pulse outwards a few times (moodchannels.css mc-swipe-hint), then go; a swipe meanwhile takes them away at once.
+   * Placed by the cover's own layout place in .np-left (offsetLeft / offsetTop: not moved by the page sliding in).
+   */
+  const HINT = { gap: 22, pulses: 5 };
+  const CHEVRONS = '<svg class="mc-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6l6 6-6 6M12 6l6 6-6 6"/></svg>';
+
+  function swipeHint(cover) {
+    const np = document.getElementById('np');
+    if (!np) return;
+    let was = np.classList.contains('on');
+    new MutationObserver(() => {
+      const on = np.classList.contains('on');
+      if (on === was) return;
+      was = on;
+      if (on && radioSource()) showHint(cover); else hintOff();
+    }).observe(np, { attributes: true, attributeFilter: ['class'] });
+  }
+
+  function showHint(cover) {
+    hintOff();
+    const left = cover.parentElement;
+    if (!left) return;
+    const y = cover.offsetTop + cover.offsetHeight / 2;
+    MC.hint = ['l', 'r'].map(side => {
+      const el = h('div', { class: 'mc-swipe-hint ' + side, html: CHEVRONS + THUMB });   // » 👍 on the right, 👎 « on the left
+      el.style.setProperty('--mc-hint', Math.round(Math.min(28, Math.max(18, cover.offsetWidth * .05))) + 'px');
+      el.style.top = y + 'px';
+      el.style.left = (side === 'l' ? cover.offsetLeft - HINT.gap : cover.offsetLeft + cover.offsetWidth + HINT.gap) + 'px';
+      el.style.animationIterationCount = HINT.pulses;
+      el.addEventListener('animationend', () => el.remove());
+      left.append(el);
+      return el;
+    });
+  }
+
+  function hintOff() {
+    for (const el of MC.hint || []) el.remove();
+    MC.hint = null;
   }
 
   /** Where the drag left the cover, and the cover's own place again (the animation goes on from there). */
@@ -610,9 +656,9 @@
     cover.animate([dragged(cover), { translate: '0px 0px', rotate: '0deg' }], { duration: 380, easing: 'cubic-bezier(.2,.9,.3,1.25)' });
   }
 
-  /** The 👍 / 👎 flashing in the middle of r, where the cover sits when not dragged nor turning. */
-  function swipeBadge(r, yes) {
-    const b = h('div', { class: 'mc-swipe-badge ' + (yes ? 'yes' : 'no'), html: THUMB });
+  /** The 👍 / 👎 flashing in the middle of r, where the cover sits when not dragged nor turning; off: a 👍 taken back. */
+  function swipeBadge(r, yes, off) {
+    const b = h('div', { class: 'mc-swipe-badge ' + (yes ? 'yes' : 'no') + (off ? ' off' : ''), html: THUMB });
     b.style.left = r.left + r.width / 2 + 'px';
     b.style.top = r.top + r.height / 2 + 'px';
     document.body.append(b);
@@ -631,13 +677,15 @@
     const home = cover.getBoundingClientRect();              // its own place: the flip's perspective would skew this later
     try {
       if (dir > 0) {
-        // 👍: back to its place and round once, the 👍 flashing as it faces front again
+        // 👍: back to its place and round once, the 👍 flashing as it faces front again; on a track already 👍 the swipe
+        // takes it back (a grey 👍 that shrinks away)
+        const undo = !!MC.radioVote && MC.radioVote.id === id && MC.radioVote.v > 0;
         const pane = cover.parentElement, persp = pane.style.perspective;
         pane.style.perspective = '1400px';
         const flip = cover.animate([from, { translate: '0px 0px', rotate: 'y 0deg', offset: .2 }, { rotate: 'y 180deg', offset: .6 }, { translate: '0px 0px', rotate: 'y 360deg' }],
           { duration: 620, easing: 'cubic-bezier(.3,.6,.3,1)' });
-        setTimeout(() => swipeBadge(home, true), 380);
-        radioVote(1, true);
+        setTimeout(() => swipeBadge(home, true, undo), 380);
+        radioVote(1, !undo);
         await flip.finished.catch(() => {});
         pane.style.perspective = persp;
       } else {
