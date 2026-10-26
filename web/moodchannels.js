@@ -565,6 +565,7 @@
         if (Math.abs(dx) < 8) return;
         drag.on = true;
         hintOff();
+        lift(true);
         cover.setPointerCapture(e.pointerId);
         cover.classList.add('mc-dragging');
       }
@@ -657,7 +658,16 @@
 
   /** A drag too short to vote: the cover springs back. */
   function settle(cover) {
-    cover.animate([dragged(cover), { translate: '0px 0px', rotate: '0deg' }], { duration: 380, easing: 'cubic-bezier(.2,.9,.3,1.25)' });
+    cover.animate([dragged(cover), { translate: '0px 0px', rotate: '0deg' }], { duration: 380, easing: 'cubic-bezier(.2,.9,.3,1.25)' })
+      .finished.catch(() => {}).then(() => { if (!MC.swiping) lift(false); });
+  }
+
+  /**
+   * While the cover is dragged, flipped or flung, the page's content goes over the extensions' layer (#np-ext: the radio
+   * label on the left), so the cover passes over the label's words, not under them (moodchannels.css mc-swiping).
+   */
+  function lift(on) {
+    document.getElementById('np')?.classList.toggle('mc-swiping', on);
   }
 
   /** The 👍 / 👎 flashing in the middle of r, where the cover sits when not dragged nor turning; off: a 👍 taken back. */
@@ -677,6 +687,7 @@
 
   async function swipe(cover, dir, v) {
     MC.swiping = true;
+    lift(true);
     const id = App.state && App.state.trackId, from = dragged(cover);
     const home = cover.getBoundingClientRect();              // its own place: the flip's perspective would skew this later
     try {
@@ -708,7 +719,7 @@
         fall.cancel();
         await cover.animate([{ opacity: 0, scale: '.86' }, { opacity: 1, scale: '1' }], { duration: 420, easing: 'cubic-bezier(.2,.9,.3,1.2)' }).finished.catch(() => {});
       }
-    } finally { MC.swiping = false; }
+    } finally { MC.swiping = false; lift(false); }
   }
 
   /* ── 👍 / 👎 in the queue drawer's upcoming rows (MIKU's queueRow, in place of its remove button) ── */
