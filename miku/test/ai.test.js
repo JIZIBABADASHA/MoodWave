@@ -219,8 +219,9 @@ console.log(`helper  ${exe}\nmodel   ${version}\nwork    ${work}\n${os.platform(
     check('radio.next: one pick', n.ids.length === 1 && clean(n.ids) && n.ids[0] !== trackRadio.ids[0], show(n.ids));
     m = await h.rpc('radio.vote.many', { ids: n.ids, source: src });
     check('… known as a pick', m.picked.includes(n.ids[0]), m.picked);
-    const none = await h.rpc('radio.next', { played: [trackRadio.ids[0]], source: { channel: 2, ext: 'moodchannels' } });
-    check('radio.next for a channel: nothing', none.ids.length === 0, none);
+    // a channel: one track of it at random, not one played (helper.test.js checks it is the channel's)
+    const ch = await h.rpc('radio.next', { played: [trackRadio.ids[0]], source: { channel: 2, ext: 'moodchannels' } });
+    check('radio.next for a channel: at most one, not one played', ch.ids.length <= 1 && !ch.ids.includes(trackRadio.ids[0]), ch);
   });
 
   await group('second start on the same data', async () => {
