@@ -519,15 +519,124 @@
     if (MC.radioVoteKey === key) setRadioVotes(id, r);
   }
 
-  async function radioVote(v) {
+  /** set: the vote is v even if it is already (a swipe on the cover), not taken back as a second press does. */
+  async function radioVote(v, set) {
     const src = radioSource(), id = App.state && App.state.trackId;
     if (!src || !id) return;
     const cur = MC.radioVote && MC.radioVote.id === id ? MC.radioVote.v : 0;
-    const next = cur === v ? 0 : v;
+    const next = set || cur !== v ? v : 0;
     const r = await MC.api.rpc('radio.vote', { id, source: src, vote: next }).catch(() => null);
     if (!r || !r.known) { toast('沒有記下來，請再按一次'); return; }
     setRadioVotes(id, r);
     if (next < 0) skipOut(id);
+  }
+
+  /*
+   * The now-playing page's cover while a radio plays answers a swipe as 👍 / 👎 do: to the right it flips round and a 👍
+   * flashes on it, to the left it drops away with a 👎 and the next track comes. A mouse drag or a touch moves the cover
+   * with the pointer first; a trackpad's two-finger swipe (a sideways wheel) does it at once.
+   */
+  const SWIPE = { px: 90, wheel: 120 };
+
+  function coverSwipe() {
+    const cover = document.getElementById('np-cover');
+    if (!cover || cover.mcSwipe) return;
+    cover.mcSwipe = true;
+    const can = () => !MC.swiping && !!radioSource() && !!MC.radioVote && MC.radioVote.id === (App.state && App.state.trackId);
+    let drag = null;
+    cover.addEventListener('dragstart', e => { if (can()) e.preventDefault(); });
+    cover.addEventListener('pointerdown', e => {
+      if (e.button === 0 && can()) drag = { x: e.clientX, y: e.clientY, id: e.pointerId, dx: 0, on: false };
+    });
+    cover.addEventListener('pointermove', e => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (!drag.on) {
+        if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { drag = null; return; }   // up or down: not a swipe
+        if (Math.abs(dx) < 8) return;
+        drag.on = true;
+        cover.setPointerCapture(e.pointerId);
+        cover.classList.add('mc-dragging');
+      }
+      drag.dx = dx;
+      cover.style.translate = `${dx}px 0`;
+      cover.style.rotate = `${dx / 18}deg`;
+    });
+    const end = e => {
+      const d = drag;
+      if (!d || e.pointerId !== d.id) return;
+      drag = null;
+      if (!d.on) return;
+      cover.classList.remove('mc-dragging');
+      if (Math.abs(d.dx) >= SWIPE.px && e.type === 'pointerup') swipe(cover, Math.sign(d.dx));
+      else settle(cover);
+    };
+    cover.addEventListener('pointerup', end);
+    cover.addEventListener('pointercancel', end);
+    // a trackpad: the fingers to the right scroll the other way (deltaX < 0); one swipe until the wheel rests
+    let sum = 0, quiet = 0, done = false;
+    cover.addEventListener('wheel', e => {
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY) || (!done && !can())) return;
+      e.preventDefault();
+      clearTimeout(quiet);
+      quiet = setTimeout(() => { sum = 0; done = false; }, 250);
+      if (done) return;
+      sum += e.deltaX;
+      if (Math.abs(sum) < SWIPE.wheel) return;
+      done = true;
+      swipe(cover, -Math.sign(sum));
+    }, { passive: false });
+  }
+
+  /** Where the drag left the cover, and the cover's own place again (the animation goes on from there). */
+  function dragged(cover) {
+    const at = { translate: cover.style.translate || '0px 0px', rotate: cover.style.rotate || '0deg' };
+    cover.style.translate = cover.style.rotate = '';
+    return at;
+  }
+
+  /** A drag too short to vote: the cover springs back. */
+  function settle(cover) {
+    cover.animate([dragged(cover), { translate: '0px 0px', rotate: '0deg' }], { duration: 380, easing: 'cubic-bezier(.2,.9,.3,1.25)' });
+  }
+
+  /** The 👍 / 👎 flashing over the cover. */
+  function swipeBadge(cover, yes) {
+    const r = cover.getBoundingClientRect();
+    const b = h('div', { class: 'mc-swipe-badge ' + (yes ? 'yes' : 'no'), html: THUMB });
+    b.style.left = r.left + r.width / 2 + 'px';
+    b.style.top = r.top + r.height / 2 + 'px';
+    document.body.append(b);
+    b.addEventListener('animationend', () => b.remove());
+  }
+
+  async function swipe(cover, dir) {
+    MC.swiping = true;
+    const id = App.state && App.state.trackId, from = dragged(cover);
+    try {
+      if (dir > 0) {
+        // 👍: back to its place and round once, the 👍 flashing as it faces front again
+        const pane = cover.parentElement, persp = pane.style.perspective;
+        pane.style.perspective = '1400px';
+        const flip = cover.animate([from, { translate: '0px 0px', rotate: 'y 0deg', offset: .2 }, { rotate: 'y 180deg', offset: .6 }, { translate: '0px 0px', rotate: 'y 360deg' }],
+          { duration: 620, easing: 'cubic-bezier(.3,.6,.3,1)' });
+        setTimeout(() => swipeBadge(cover, true), 380);
+        radioVote(1, true);
+        await flip.finished.catch(() => {});
+        pane.style.perspective = persp;
+      } else {
+        // 👎: it drops away, the 👎 flashes where it was, and the next track's cover comes in
+        swipeBadge(cover, false);
+        const x = parseFloat(from.translate) || 0;
+        const fall = cover.animate([{ ...from, opacity: 1 }, { translate: `${x - 60}px 80vh`, rotate: '-28deg', opacity: 0 }],
+          { duration: 560, easing: 'cubic-bezier(.55,0,.85,.35)', fill: 'forwards' });
+        radioVote(-1, true);
+        await fall.finished.catch(() => {});
+        for (let t = 0; t < 30 && App.state && App.state.trackId === id; t++) await new Promise(r => setTimeout(r, 50));
+        fall.cancel();
+        await cover.animate([{ opacity: 0, scale: '.86' }, { opacity: 1, scale: '1' }], { duration: 420, easing: 'cubic-bezier(.2,.9,.3,1.2)' }).finished.catch(() => {});
+      }
+    } finally { MC.swiping = false; }
   }
 
   /**
@@ -1060,6 +1169,7 @@
     async init(api) {
       MC.api = api;
       defs();
+      coverSwipe();
       // the cards' hover lift in whole screen pixels at this display scaling (moodchannels.css)
       const lift = () => document.documentElement.style.setProperty('--mc-lift', Math.round(6 * devicePixelRatio) / devicePixelRatio + 'px');
       lift();
