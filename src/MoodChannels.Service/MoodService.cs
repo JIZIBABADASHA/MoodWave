@@ -8,7 +8,8 @@ namespace MoodChannels.Service;
 /// time-of-day and eight mood channels, adjusted to the listener's own 👍 / 👎 (Personalization). Settings:
 /// "enabled" (analysis and the page, default on), "threads" (default 1), "builtin" (the built-in tuning, default on);
 /// the advanced AI (CLAP embeddings, ClapQueue): "ai" (default off), "aiSegments" (6 / 9 / 12; unset: 12 with a GPU,
-/// 6 on the processor), "aiGpu" (default on), "aiThreads" (on the processor; 0, the default: half the cores).
+/// 6 on the processor), "aiGpu" (default on), "aiThreads" (on the processor; 0, the default: half the cores),
+/// "readLimit" (the analysis' disk speed while a track plays, MB a second: 4 / 8 / 16, 0 none, the default).
 /// It measures each track's loudness too, which the player's ReplayGain uses to level tracks (TryGetLoudness). The
 /// player is reached only through <see cref="IMoodHost"/>.
 /// </summary>
@@ -127,11 +128,12 @@ public sealed class MoodService
             // only now the module answers with channels: before, the page would get them without the listener's votes
             _personal = personal;
             _analyzer = analyzer;
-            _queue = new AnalysisQueue(_store, analyzer, () => host.Tracks, () => host.FfmpegPath, host.Log);
+            _readLimit = ReadLimitSetting();
+            _queue = new AnalysisQueue(_store, analyzer, () => host.Tracks, () => host.FfmpegPath, host.Log, ReadLimitNow);
             _queue.Changed += PostStatusSoon;
             var queue = _queue;
             var clapModel = _clapModel = new ClapModel(host.ModuleDir, host.DataDir, host.Log);
-            _clap = new ClapQueue(_store, () => host.Tracks, () => host.FfmpegPath, () => queue.Busy, () => clapModel.OnnxPath, host.ModuleDir, host.Log);
+            _clap = new ClapQueue(_store, () => host.Tracks, () => host.FfmpegPath, () => queue.Busy, () => clapModel.OnnxPath, host.ModuleDir, host.Log, ReadLimitNow);
             // while the model downloads, its progress goes to the page every second; once there, the work list is made
             _downloadTick = Guarded("download progress", () => { PostStatusSoon(); if (!clapModel.Downloading) Soon(_downloadTick, Timeout.Infinite); });
             clapModel.Changed += () =>
@@ -159,6 +161,22 @@ public sealed class MoodService
         ClassifyStored();
         Collect();                                       // the listener's adjustments ready before the page asks
         Ready?.Invoke();
+    }
+
+    /// <summary>
+    /// 限制分析速度 (setting readLimit, MB a second; 0: none): while a track plays, the analysis reads the disk at most
+    /// this fast, 1 MB at a time, so a player reading from the same disk (a USB hard disk) is not starved.
+    /// </summary>
+    public static readonly int[] ReadLimits = { 4, 8, 16, 0 };
+    const int DefaultReadLimit = 0;
+    volatile int _readLimit = DefaultReadLimit;
+
+    int ReadLimitSetting() { int mb = Setting("readLimit", DefaultReadLimit); return ReadLimits.Contains(mb) ? mb : DefaultReadLimit; }
+
+    long ReadLimitNow()
+    {
+        int mb = _readLimit;
+        return mb > 0 && _host.IsPlaying ? mb * (1L << 20) : 0;
     }
 
     /// <summary>The advanced AI's settings to the CLAP queue (off with the analysis).</summary>
@@ -190,6 +208,7 @@ public sealed class MoodService
         var ai = JsonSerializer.SerializeToNode(_clap?.Status()
             ?? new { enabled = Setting("ai", false), segmentSetting = AiSegments, gpu = Setting("aiGpu", true), gpuCapable = OperatingSystem.IsWindows() })!.AsObject();
         if (_clapModel != null) ai["download"] = JsonSerializer.SerializeToNode(_clapModel.Status());
+        o["readLimit"] = _queue != null ? _readLimit : ReadLimitSetting();    // 限制分析速度 (MB a second; 0: none), both analyses
         o["ai"] = ai;
         return o;
     }
@@ -243,6 +262,16 @@ public sealed class MoodService
 
     string? PathOf(string? id) => id == null ? null : _host.Tracks.FirstOrDefault(t => t.Id == id)?.Path;
 
+    /// <summary>The files of these library ids (the ones the library has), in one pass over it.</summary>
+    Dictionary<string, string> PathsOf(IReadOnlyList<string> ids)
+    {
+        var want = new HashSet<string>(ids);
+        var paths = new Dictionary<string, string>();
+        foreach (var t in _host.Tracks)
+            if (!string.IsNullOrEmpty(t.Path) && want.Contains(t.Id)) paths.TryAdd(t.Id, t.Path);
+        return paths;
+    }
+
     /* ── Song Radio (the advanced AI) ── */
 
     /// <summary>Whether the radio can run: the advanced AI on, its model there and some embeddings worked out.</summary>
@@ -280,6 +309,34 @@ public sealed class MoodService
         return (kind, name, seeds);
     }
 
+    /// <summary>The channel a queue's source plays (a channel's list, Shuffle All too); null for anything else.</summary>
+    static int? ChannelOf(JsonElement? source) =>
+        source is { ValueKind: JsonValueKind.Object } s && !s.TryGetProperty("radio", out _) && s.TryGetProperty("channel", out var c) &&
+        c.ValueKind == JsonValueKind.Number && c.TryGetInt32(out int ch) && ch >= 0 && ch <= All ? ch : null;
+
+    /// <summary>A track played within this long counts as heard lately: a channel's random pick takes others first.</summary>
+    static readonly TimeSpan ChannelFresh = TimeSpan.FromHours(12);
+
+    /// <summary>
+    /// A channel's next track: at random from its tracks as they are now (worked out again at each pick, so a vote
+    /// just cast counts: a 👎'd track is out, and what the channel's model now leaves out too), not one of
+    /// <paramref name="played"/> (the queue up to here) and, while there are others, not one heard lately; with every
+    /// track heard lately, the one heard longest ago. Null for an empty channel.
+    /// </summary>
+    string? ChannelNext(int channel, IReadOnlyList<string> played)
+    {
+        var ids = Collect().Channels[channel];
+        var seen = new HashSet<string>(played);
+        var left = ids.Where(id => !seen.Contains(id)).Distinct().ToList();
+        if (left.Count == 0) left = ids.Where(id => id != played.LastOrDefault()).Distinct().ToList();   // all of it in the queue: round again
+        if (left.Count == 0) return null;
+        var path = _host.Tracks.Where(t => !string.IsNullOrEmpty(t.Path)).GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.First().Path);
+        DateTime Last(string id) => path.TryGetValue(id, out var p) && _store.LastPlayed(p) is { } lp ? lp.At : DateTime.MinValue;
+        var since = DateTime.UtcNow - ChannelFresh;
+        var fresh = left.Where(id => Last(id) < since).ToList();
+        return fresh.Count > 0 ? fresh[Random.Shared.Next(fresh.Count)] : left.MinBy(Last);
+    }
+
     static string AlbumKey(MoodTrack t) => t.Album.Trim().ToLowerInvariant() + "|" + (Path.GetDirectoryName(t.Path) ?? "").ToLowerInvariant();
 
     /// <summary>
@@ -293,7 +350,13 @@ public sealed class MoodService
         _ => seeds.Count > 0 ? "track:" + seeds[0].Path.ToLowerInvariant() : null,
     };
 
-    /// <summary>A radio's seeds with the listener's 👍 of radios from its start (weight 0.7), and their 👎 (kept out).</summary>
+    /// <summary>A seed the listener gave a 👍 counts this much more (the track playing, heard lately, a radio's own seed).</summary>
+    const double LikeBoost = 1.25;
+
+    /// <summary>
+    /// A radio's seeds with the listener's 👍 of radios from its start (weight 0.7; one already a seed counts
+    /// <see cref="LikeBoost"/> times more), and their 👎 (kept out, and no seed even if heard or one of the radio's own).
+    /// </summary>
     (List<Radio.Seed> Seeds, List<string> Avoid) WithVotes(string? origin, List<Radio.Seed> seeds, IReadOnlyList<MoodTrack> tracks, double like = 0.7)
     {
         if (origin == null) return (seeds, new());
@@ -301,9 +364,14 @@ public sealed class MoodService
         if (votes.Count == 0) return (seeds, new());
         var byPath = tracks.Where(t => !string.IsNullOrEmpty(t.Path)).GroupBy(t => t.Path, StringComparer.OrdinalIgnoreCase)
                            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        int VoteOn(string path) => votes.TryGetValue(path, out int v) ? v : 0;
+        var kept = seeds.Where(s => VoteOn(s.Track.Path) >= 0)
+                        .Select(s => VoteOn(s.Track.Path) > 0 ? s with { Weight = s.Weight * LikeBoost } : s).ToList();
         var have = new HashSet<string>(seeds.Select(s => s.Track.Path), StringComparer.OrdinalIgnoreCase);
         var more = votes.Where(v => v.Value > 0 && !have.Contains(v.Key) && byPath.ContainsKey(v.Key)).Select(v => new Radio.Seed(byPath[v.Key], like));
-        return (seeds.Concat(more).ToList(), votes.Where(v => v.Value < 0).Select(v => v.Key).ToList());
+        var all = kept.Concat(more).ToList();
+        // every seed with a 👎 (a track radio's own track): the radio still goes on from them rather than stop
+        return (all.Count > 0 ? all : seeds, votes.Where(v => v.Value < 0).Select(v => v.Key).ToList());
     }
 
     /// <summary>The radio playing (from the queue's source) and where it started; null when the queue is no radio of ours.</summary>
@@ -331,13 +399,55 @@ public sealed class MoodService
     }
 
     /// <summary>
-    /// What comes after the queue's last track (the player's 「佇列播完後」, or the queue is a radio of ours): a radio
-    /// goes on from its seeds; any other list from what the listener actually heard lately (<see cref="Listened"/>).
-    /// A channel's list goes on only when the listener chose it.
+    /// The votes on tracks (library ids) in the radio the source names, for the queue's rows: { known, votes: { id: vote },
+    /// picked: the ones the radio picked (<see cref="Picked"/>) }.
     /// </summary>
-    public Task<IReadOnlyList<string>> Continue(IReadOnlyList<string> played, JsonElement? source, bool chosen) => Task.Run(() =>
+    object RadioVoteStates(IReadOnlyList<string> ids, JsonElement? source)
+    {
+        if (RadioPlaying(source) is not { } r) return new { known = false, votes = new Dictionary<string, int>(), picked = new List<string>() };
+        var all = _store.RadioVotes(r.Origin);
+        var votes = new Dictionary<string, int>();
+        foreach (var (id, path) in PathsOf(ids)) votes[id] = all.GetValueOrDefault(path);
+        return new { known = true, votes, picked = ids.Distinct().Where(WasPicked).ToList() };
+    }
+
+    /// <summary>
+    /// What comes after the queue's last track (the player's 「佇列播完後」, or the queue is a radio or a channel of
+    /// ours): a channel goes on at random from it (<see cref="ChannelNext"/>); a radio from its seeds; any other list,
+    /// when the listener chose it, from what they actually heard lately (<see cref="Listened"/>).
+    /// </summary>
+    public Task<IReadOnlyList<string>> Continue(IReadOnlyList<string> played, JsonElement? source, bool chosen) =>
+        Task.Run(() => Picked(PickNext(played, source, chosen)));
+
+    /// <summary>
+    /// The tracks the radio picked lately (library ids, the latest last): the page may pick one queued next again after
+    /// a vote (radio.next), never a track the listener put in the queue.
+    /// </summary>
+    readonly LinkedList<string> _picked = new();
+    const int PickedKept = 200;
+
+    IReadOnlyList<string> Picked(IReadOnlyList<string> ids)
+    {
+        lock (_picked)
+            foreach (var id in ids)
+            {
+                _picked.Remove(id);
+                _picked.AddLast(id);
+                if (_picked.Count > PickedKept) _picked.RemoveFirst();
+            }
+        return ids;
+    }
+
+    bool WasPicked(string id) { lock (_picked) return _picked.Contains(id); }
+
+    void Unpicked(string id) { lock (_picked) _picked.Remove(id); }
+
+    IReadOnlyList<string> PickNext(IReadOnlyList<string> played, JsonElement? source, bool chosen)
     {
         IReadOnlyList<string> none = Array.Empty<string>();
+        // a channel goes on by itself, one track at a time at random from it (no advanced AI needed)
+        if (ChannelOf(source) is int channel)
+            return ChannelNext(channel, played) is string next ? new[] { next } : none;
         if (!RadioReady) return none;
         var tracks = _host.Tracks;
         var byId = tracks.Where(t => !string.IsNullOrEmpty(t.Path)).GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.First());
@@ -360,8 +470,9 @@ public sealed class MoodService
             history = heard.Where(t => !inHistory.Contains(t.Path)).Concat(history).ToList();
         }
         if (seeds.Count == 0) return none;
+        // one at a time: each pick follows what was heard and voted on up to then (MIKU asks again while it plays)
         // an album's radio: the album's own tracks come back now and then (at least 6 apart, Radio.AlbumGap)
-        var picks = _radio!.Next(seeds, history, 5, tracks, null, seedsPlay: radio is { Kind: "album" }, avoid: avoid);
+        var picks = _radio!.Next(seeds, history, PickCount, tracks, null, seedsPlay: radio is { Kind: "album" }, avoid: avoid);
         if (picks.Count == 0)
         {
             // no seed has its embedding yet: they go first, and meanwhile the seeds' artists and albums carry on
@@ -371,14 +482,14 @@ public sealed class MoodService
             var albums = new HashSet<string>(seeds.Select(x => AlbumKey(x.Track)));
             var fallback = tracks.Where(t => !string.IsNullOrEmpty(t.Path) && !seen.Contains(t.Path) && Playable(t) &&
                                              (artists.Contains(t.Artist.Trim().ToLowerInvariant()) || albums.Contains(AlbumKey(t))))
-                                 .OrderBy(_ => Random.Shared.Next()).Take(5).Select(t => t.Id).ToList();
+                                 .OrderBy(_ => Random.Shared.Next()).Take(PickCount).Select(t => t.Id).ToList();
             _host.Log($"radio: no seed embedded yet, {fallback.Count} from the same artists / albums");
             return fallback;
         }
         _host.Log($"radio: next {picks.Count} ({(radio != null ? radio.Value.Kind + " radio" : "after the list")}): " +
                   string.Join(", ", picks.Select(x => $"{x.Track.Title} {x.Cos:0.00}")));
-        return (IReadOnlyList<string>)picks.Select(x => x.Track.Id).ToList();
-    });
+        return picks.Select(x => x.Track.Id).ToList();
+    }
 
     /// <summary>A track a radio may play: analysed (current) and in a channel, as Radio.Next asks of its picks (not a file that failed, silence or speech).</summary>
     bool Playable(MoodTrack t) =>
@@ -386,6 +497,12 @@ public sealed class MoodService
 
     /// <summary>The Smart Playlist's votes (radio_votes): one set for it, whatever list it goes on from.</summary>
     const string SmartOrigin = "smart";
+
+    /// <summary>
+    /// Tracks picked at a time, a radio's start too (after its first track): one, so a vote on the track playing or the
+    /// one queued next counts for the very next pick (the page takes a pick out after a vote, and MIKU asks again).
+    /// </summary>
+    const int PickCount = 1;
 
     const int ListenedSeeds = 10;
     static readonly TimeSpan ListenedSpan = TimeSpan.FromHours(2);
@@ -451,9 +568,11 @@ public sealed class MoodService
         var start = kind != "album" ? seedTracks[0]
             : seedTracks.OrderByDescending(t => _store.LastPlayed(t.Path)?.Count ?? 0).ThenBy(t => seedTracks.IndexOf(t)).First();
         var first = new List<MoodTrack> { start };
-        var picks = _radio!.Next(seeds, first, 9, tracks, null, seedsPlay: kind == "album", avoid: avoid);
+        var picks = _radio!.Next(seeds, first, PickCount, tracks, null, seedsPlay: kind == "album", avoid: avoid);
         int waiting = seeds.Count(s => !_radio.Has(s.Track.Path));
         if (waiting > 0) _clap?.Prioritize(seeds.Select(s => s.Track.Path));
+        Unpicked(start.Id);                              // the listener's own track now, though a radio picked it before
+        Picked(picks.Select(p => p.Track.Id).ToList());
         var list = first.Concat(picks.Select(p => p.Track)).Select(t => t.Id).ToList();
         _host.Log($"radio: {kind} radio \"{name}\" from {seeds.Count} seeds, {picks.Count} picked" + (waiting > 0 ? $", {waiting} seeds not embedded yet" : ""));
         return new
@@ -470,6 +589,20 @@ public sealed class MoodService
         string? path = PathOf(id);
         if (path == null || channel < 0 || channel >= Channels.Count || _personal == null) return new { vote = 0, known = false };
         return new { vote = _store.Vote(path, channel), known = _store.Get(path)?.Ok == true, channel = _personal.Status(channel) };
+    }
+
+    /// <summary>
+    /// The listener's votes on tracks (library ids) in a channel, for the queue's rows: { known, votes: { id: vote },
+    /// picked: the ones picked for the channel (<see cref="Picked"/>) } with the tracks that can be voted on
+    /// (analysed); known false for no such channel.
+    /// </summary>
+    object VoteStates(IReadOnlyList<string> ids, int channel)
+    {
+        if (channel < 0 || channel >= Channels.Count || _personal == null) return new { known = false, votes = new Dictionary<string, int>(), picked = new List<string>() };
+        var votes = new Dictionary<string, int>();
+        foreach (var (id, path) in PathsOf(ids))
+            if (_store.Get(path)?.Ok == true) votes[id] = _store.Vote(path, channel);
+        return new { known = true, votes, picked = ids.Distinct().Where(WasPicked).ToList() };
     }
 
     /// <summary>👍 (+1), 👎 (-1) or neither (0) on a track in a channel; the channel's model learns from it at once.</summary>
@@ -538,6 +671,9 @@ public sealed class MoodService
             a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         bool? Bool(string name) =>
             a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : null;
+        List<string> Strs(string name) =>
+            a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
+                ? v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList() : new List<string>();
 
         switch (method)
         {
@@ -557,6 +693,8 @@ public sealed class MoodService
                 return Task.Run(() => Vote(Str("id"), Int("channel", -1), Int("vote", 0)));
             case "vote.get":
                 return Task.Run(() => VoteState(Str("id"), Int("channel", -1)));
+            case "vote.many":
+                return Task.Run(() => VoteStates(Strs("ids"), Int("channel", -1)));
             case "tuning.export":
             {
                 // the listener's channel models as a built-in tuning, written to the data folder (tuning.json)
@@ -583,6 +721,7 @@ public sealed class MoodService
                 if (Int("aiSegments", -1) is int seg and >= 0) _host.SetSetting("aiSegments", seg == 0 ? 0 : ClapWindows.Segments(seg));
                 if (Bool("aiGpu") is bool gpu) _host.SetSetting("aiGpu", gpu);
                 if (Int("aiThreads", -1) is int aiThreads and >= 0) _host.SetSetting("aiThreads", Math.Min(aiThreads, Environment.ProcessorCount));
+                if (Int("readLimit", -1) is int readLimit && ReadLimits.Contains(readLimit)) { _host.SetSetting("readLimit", readLimit); _readLimit = readLimit; }
                 Task.Run(ConfigureClap);
                 return Task.FromResult(Status());
             }
@@ -601,9 +740,27 @@ public sealed class MoodService
                 return Task.FromResult(Status());
             case "radio.start":
             {
-                var ids = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("ids", out var arr) && arr.ValueKind == JsonValueKind.Array
-                    ? arr.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList() : new List<string>();
+                var ids = Strs("ids");
                 return Task.Run(() => StartRadio(Str("kind") ?? "track", ids, Str("artist"), Str("name")));
+            }
+            case "radio.next":
+            {
+                // a pick queued next taken again after a vote (the page swaps it): played = the queue up to before it;
+                // only for a channel, a radio or the Smart Playlist (its source), and it is a pick then too
+                JsonElement? source = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("source", out var src) ? src.Clone() : null;
+                var played = Strs("played");
+                return Task.Run(() =>
+                {
+                    if (ChannelOf(source) != null) return (object)new { ids = Picked(PickNext(played, source, chosen: false)) };
+                    if (RadioPlaying(source) is not { } r) return new { ids = Array.Empty<string>() };
+                    return new { ids = Picked(PickNext(played, source, chosen: r.Kind == "smart")) };
+                });
+            }
+            case "radio.vote.many":
+            {
+                JsonElement? source = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("source", out var src) ? src.Clone() : null;
+                var ids = Strs("ids");
+                return Task.Run(() => RadioVoteStates(ids, source));
             }
             case "radio.vote":
             case "radio.vote.get":
@@ -692,21 +849,24 @@ public sealed class MoodService
     }
 
     /// <summary>
-    /// What to play for a channel: its tracks in random order, starting at a random one (one whose loudness is
-    /// measured, when there is such); at = where that first track starts, in seconds (always its beginning: the engine
-    /// finds no chorus).
+    /// What to play for a channel: a random track of it (one whose loudness is measured, when there is such) and the
+    /// next one (<see cref="ChannelNext"/>); after that the channel goes on one track at a time (MIKU asks Continue
+    /// while the last track plays), so a vote counts for the very next pick. at = where the first track starts, in
+    /// seconds (always its beginning: the engine finds no chorus); count = the channel's tracks.
     /// </summary>
     object StartChannel(int channel)
     {
-        if (channel < 0 || channel > All) return new { ids = new List<string>(), start = -1, at = 0.0 };
-        var ids = Collect().Channels[channel];
-        if (ids.Count == 0) return new { ids, start = -1, at = 0.0 };
+        if (channel < 0 || channel > All) return new { ids = new List<string>(), start = -1, at = 0.0, count = 0 };
+        var all = Collect().Channels[channel];
+        if (all.Count == 0) return new { ids = all, start = -1, at = 0.0, count = 0 };
         // the first track is levelled from its first second only if its loudness is measured already (the gain is
         // set as a track starts): while the library is still being measured, start at one that is
         var path = _host.Tracks.GroupBy(t => t.Id).ToDictionary(g => g.Key, g => g.First().Path);
-        var measured = Enumerable.Range(0, ids.Count).Where(i => path.TryGetValue(ids[i], out var p) && TryGetLoudness(p, out _, out _)).ToList();
-        int start = measured.Count > 0 ? measured[Random.Shared.Next(measured.Count)] : Random.Shared.Next(ids.Count);
-        return new { ids, start, at = 0.0 };
+        var measured = all.Where(id => path.TryGetValue(id, out var p) && TryGetLoudness(p, out _, out _)).ToList();
+        string first = measured.Count > 0 ? measured[Random.Shared.Next(measured.Count)] : all[Random.Shared.Next(all.Count)];
+        var ids = new List<string> { first };
+        if (ChannelNext(channel, ids) is string next && next != first) ids.Add(Picked(new[] { next })[0]);
+        return new { ids, start = 0, at = 0.0, count = all.Count };
     }
 
     /// <summary>The library tracks whose analysis failed, with the reason in words (for the settings list).</summary>

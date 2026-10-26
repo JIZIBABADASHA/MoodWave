@@ -133,7 +133,7 @@ console.log(`helper  ${exe}\nmodel   ${version}\nwork    ${work}\n${os.platform(
     trackRadio = t;
     info('track radio: ' + show(t.ids || []).join(', '));
     check('a track\'s radio starts with it', t.ok && t.ids[0] === seed.id, t.ids && t.ids[0]);
-    check('up to ten, at least five', t.ids.length >= 5 && t.ids.length <= 10, t.ids.length);
+    check('the track and one pick (one at a time)', t.ids.length === 2, t.ids.length);
     check('only songs, none twice', clean(t.ids, seed.id), show(t.ids));
     check('its source: the radio and its seeds', t.source && t.source.radio && t.source.radio.kind === 'track' && t.source.radio.seeds[0] === seed.id, t.source);
     check('one version of a song', !(t.ids.includes('m2') && t.ids.includes('m3')), show(t.ids));
@@ -141,7 +141,16 @@ console.log(`helper  ${exe}\nmodel   ${version}\nwork    ${work}\n${os.platform(
       let a = await h.rpc('radio.start', { kind: 'album', ids: album.map(x => x.id), name: 'Test Album' });
       info('album radio: ' + show(a.ids).join(', '));
       check('an album\'s radio, nothing played: its first track', a.ok && a.ids[0] === album[0].id, show(a.ids.slice(0, 1)));
-      const at = a.ids.map((id, i) => album.some(x => x.id === id) ? i : -1).filter(i => i >= 0);
+      // one pick at a time: the radio going on, as MIKU asks while the last track plays
+      const list = a.ids.slice(), asrc = { ...a.source, ext: 'moodchannels' };
+      for (let k = 0; k < 12; k++) {
+        const c = await cont(h, list, asrc, false);
+        if (!c.length) break;
+        check(`going on: one pick (${k + 1})`, c.length === 1, show(c));
+        list.push(...c);
+      }
+      info('album radio on: ' + show(list).join(', '));
+      const at = list.map((id, i) => album.some(x => x.id === id) ? i : -1).filter(i => i >= 0);
       check('its tracks at least 6 apart', at.every((v, k) => k === 0 || v - at[k - 1] >= 6), at);
       // a play of its last track, then the radio again: it starts there
       const last = album[album.length - 1];
@@ -163,11 +172,11 @@ console.log(`helper  ${exe}\nmodel   ${version}\nwork    ${work}\n${os.platform(
     const list = [songs[4].id, songs[5].id, songs[6].id];
     let c = await cont(h, list, null, false);
     check('a list nobody asked to go on with: nothing', c.length === 0, c);
-    c = await cont(h, list, { channel: 2, ext: 'moodchannels' }, false);
-    check('a channel\'s list, not chosen: nothing', c.length === 0, c);
+    c = await cont(h, list, { channel: 13, ext: 'moodchannels' }, false);
+    check('a channel goes on by itself (not chosen): one of it, not queued', c.length === 1 && clean(c) && !list.includes(c[0]), show(c));
     c = await cont(h, list, null, true);
     info('smart playlist: ' + show(c).join(', '));
-    check('chosen (the Smart Playlist): up to 5, new, only songs', c.length > 0 && c.length <= 5 && clean(c) && !c.some(id => list.includes(id)), show(c));
+    check('chosen (the Smart Playlist): one, new, only songs', c.length === 1 && clean(c) && !c.some(id => list.includes(id)), show(c));
     if (album.length >= 3) check('none heard lately (the play above)', !c.includes(album[album.length - 1].id), show(c));
     const src = { ...trackRadio.source, ext: 'moodchannels' };
     c = await cont(h, trackRadio.ids, src, false);
@@ -195,6 +204,28 @@ console.log(`helper  ${exe}\nmodel   ${version}\nwork    ${work}\n${os.platform(
     check('no radio playing: nothing to vote on', v.known === false, v);
     v = await h.rpc('radio.vote', { id, source: { smart: true }, vote: 0 });
     check('a vote taken back', v.vote === 0, v);
+    // the queue drawer's rows: the votes of many tracks at once, and which of them the radio picked
+    let m = await h.rpc('radio.vote.many', { ids: trackRadio.ids, source: src });
+    check('radio.vote.many: each row\'s vote', m.known === true && m.votes[id] === 1 && m.votes[trackRadio.ids[0]] === 0, m);
+    check('… and the radio\'s picks (not its own track)', m.picked.includes(trackRadio.ids[1]) && !m.picked.includes(trackRadio.ids[0]), m.picked);
+    m = await h.rpc('radio.vote.many', { ids: trackRadio.ids, source: null });
+    check('radio.vote.many, no radio: not known', m.known === false, m);
+    m = await h.rpc('vote.many', { ids: songs.slice(0, 3).map(s => s.id), channel: 2 });
+    check('vote.many in a channel', m.known === true && Object.values(m.votes).every(x => x === 0), m);
+    m = await h.rpc('vote.many', { ids: [songs[0].id], channel: 99 });
+    check('vote.many, no such channel: not known', m.known === false, m);
+    // a pick queued next taken again after a vote: one new track, a pick too
+    const n = await h.rpc('radio.next', { played: [trackRadio.ids[0]], source: src });
+    check('radio.next: one pick', n.ids.length === 1 && clean(n.ids) && n.ids[0] !== trackRadio.ids[0], show(n.ids));
+    m = await h.rpc('radio.vote.many', { ids: n.ids, source: src });
+    check('… known as a pick', m.picked.includes(n.ids[0]), m.picked);
+    // a radio started from a track a radio picked before: that track is the listener's own now, not a pick
+    const fromPick = await h.rpc('radio.start', { kind: 'track', ids: [n.ids[0]], name: 'from a pick' });
+    m = await h.rpc('radio.vote.many', { ids: fromPick.ids, source: { ...fromPick.source, ext: 'moodchannels' } });
+    check('a radio from an earlier pick: its own track no longer a pick', fromPick.ok && !m.picked.includes(n.ids[0]), m.picked);
+    // a channel: one track of it at random, not one played (helper.test.js checks it is the channel's)
+    const ch = await h.rpc('radio.next', { played: [trackRadio.ids[0]], source: { channel: 2, ext: 'moodchannels' } });
+    check('radio.next for a channel: at most one, not one played', ch.ids.length <= 1 && !ch.ids.includes(trackRadio.ids[0]), ch);
   });
 
   await group('second start on the same data', async () => {

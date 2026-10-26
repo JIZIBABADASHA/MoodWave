@@ -216,14 +216,15 @@
   const BG_VERSION = 7;                                      // bump when tools/gen_backdrops.py makes new backdrops (cache)
 
   /**
-   * Play a channel: shuffled, starting at a random track (picked by the module; `at` is where that track starts,
-   * 0 for now), and marked as this module's so the player bar shows the channel band.
+   * Play a channel: a random track of it and the next one (picked by the module; `at` is where the first starts, 0
+   * for now), marked as this module's so the player bar shows the channel band. The channel then goes on one track
+   * at a time (the module's Continue), so a vote counts for the very next pick.
    */
   async function playChannel(i, still = () => true) {
     const r = await MC.api.rpc('start', { channel: i });
     if (!still()) return true;                               // another channel was asked for meanwhile: that one plays
     if (!r || !r.ids.length) { toast(`${INFO[i].name} 沒有曲目`); return false; }
-    await MC.api.play(r.ids, true, r.start, { at: r.at, source: { channel: i } });
+    await MC.api.play(r.ids, false, r.start, { at: r.at, source: { channel: i } });
     return true;
   }
 
@@ -357,9 +358,13 @@
     img.src = url;
   }
 
-  /** The now-playing page (the cover, the lyrics and MoodWave's wheel or label), from the bar's band or radio label. */
+  /**
+   * The now-playing page (the cover, the lyrics and MoodWave's wheel or label), from the bar's band or radio label.
+   * Over it already, with the bar brought back (MIKU's 「顯示播放列」): the bar goes away again, as a click on the bar does.
+   */
   function openNowPlaying() {
     if (!NowPlaying.open) NowPlaying.show();
+    else if (window.BarPeek && BarPeek.on) BarPeek.hide();
   }
 
   /** The bar's channel band. One element for the session: MIKU empties the slot on every new queue and it is put back. */
@@ -465,20 +470,21 @@
   }
 
   /**
-   * What radio plays: the mark, the kind (歌曲電台 / 專輯電台 / 歌手電台) and what it started from, then 👍 / 👎 on the
-   * track playing; on the bar and the now-playing page.
+   * What radio plays: the mark, the kind (歌曲電台 / 專輯電台 / 歌手電台) and what it started from; on the bar and the
+   * now-playing page. On the bar 👍 / 👎 on the track playing follow it; on the page a swipe on the cover is the vote
+   * (coverSwipe), and the track's vote is still asked for, which the swipe needs.
    */
   function radioLabel(radio, cls, logoCls) {
-    const v = voteButtons(radioVote);
-    MC.radioVotes = (MC.radioVotes || []).filter(x => x.votes.isConnected).concat([v]);
     // on the bar the label opens the now-playing page, as the channel band does (👍 / 👎 stay votes)
     const open = cls === 'mc-radio-band';
+    const v = open && voteButtons(radioVote);
+    if (v) MC.radioVotes = (MC.radioVotes || []).filter(x => x.votes.isConnected).concat([v]);
     const el = h('div', { class: cls + (open ? ' mc-radio-open' : ''), role: open && 'link', tabindex: open && 0,
       title: radio.kind === 'smart' ? 'MoodWave Smart Playlist' : `MoodWave ${RADIO_KIND[radio.kind] || '電台'}：${radio.name || ''}`,
       onclick: open && openNowPlaying, onkeydown: open && (e => { if (e.target === el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openNowPlaying(); } }) },
       h('span', { class: 'mc-radio-mark', html: logo(logoCls) }),
       h('span', { class: 'mc-radio-text' }, h('small', null, RADIO_KIND[radio.kind] || '電台'), h('b', null, radio.name || '')),
-      v.votes);
+      v && v.votes);
     refreshRadioVotes();
     return el;
   }
@@ -519,15 +525,320 @@
     if (MC.radioVoteKey === key) setRadioVotes(id, r);
   }
 
-  async function radioVote(v) {
+  /** set: the vote is v even if it is already (a swipe on the cover), not taken back as a second press does. */
+  async function radioVote(v, set) {
     const src = radioSource(), id = App.state && App.state.trackId;
     if (!src || !id) return;
     const cur = MC.radioVote && MC.radioVote.id === id ? MC.radioVote.v : 0;
-    const next = cur === v ? 0 : v;
+    const next = set || cur !== v ? v : 0;
     const r = await MC.api.rpc('radio.vote', { id, source: src, vote: next }).catch(() => null);
     if (!r || !r.known) { toast('沒有記下來，請再按一次'); return; }
     setRadioVotes(id, r);
+    // the track queued next picked again with the vote known, then a 👎 skips to it
+    await repickAfter(id, (App.queue || {}).index);
     if (next < 0) skipOut(id);
+  }
+
+  /*
+   * The now-playing page's cover while a radio plays answers a swipe as 👍 / 👎 do: to the right it flips round and a 👍
+   * flashes on it, to the left it drops away with a 👎 and the next track comes. A mouse drag or a touch moves the cover
+   * with the pointer first; a trackpad's two-finger swipe (a sideways wheel) does it at once.
+   */
+  const SWIPE = { px: 90, wheel: 120 };
+  const FLING = 1.6;                                          // the least speed a 👎 cover flies out at, px per ms
+
+  function coverSwipe() {
+    const cover = document.getElementById('np-cover');
+    if (!cover || cover.mcSwipe) return;
+    cover.mcSwipe = true;
+    const can = () => !MC.swiping && !!radioSource() && !!MC.radioVote && MC.radioVote.id === (App.state && App.state.trackId);
+    let drag = null;
+    cover.addEventListener('dragstart', e => { if (can()) e.preventDefault(); });
+    cover.addEventListener('pointerdown', e => {
+      if (e.button === 0 && can()) drag = { x: e.clientX, y: e.clientY, id: e.pointerId, dx: 0, on: false, moves: [] };
+    });
+    cover.addEventListener('pointermove', e => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (!drag.on) {
+        if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { drag = null; return; }   // up or down: not a swipe
+        if (Math.abs(dx) < 8) return;
+        drag.on = true;
+        hintOff();
+        lift(true);
+        cover.setPointerCapture(e.pointerId);
+        cover.classList.add('mc-dragging');
+      }
+      drag.dx = dx;
+      drag.moves.push({ t: e.timeStamp, x: e.clientX, y: e.clientY });   // the last 100 ms: how fast it was let go
+      while (drag.moves.length > 2 && e.timeStamp - drag.moves[0].t > 100) drag.moves.shift();
+      cover.style.translate = `${dx}px 0`;
+      cover.style.rotate = `${dx / 18}deg`;
+    });
+    const end = e => {
+      const d = drag;
+      if (!d || e.pointerId !== d.id) return;
+      drag = null;
+      if (!d.on) return;
+      cover.classList.remove('mc-dragging');
+      if (Math.abs(d.dx) >= SWIPE.px && e.type === 'pointerup') swipe(cover, Math.sign(d.dx), flung(d.moves));
+      else settle(cover);
+    };
+    cover.addEventListener('pointerup', end);
+    cover.addEventListener('pointercancel', end);
+    // a trackpad: the fingers to the right scroll the other way (deltaX < 0); one swipe until the wheel rests
+    let sum = 0, quiet = 0, done = false;
+    cover.addEventListener('wheel', e => {
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY) || (!done && !can())) return;
+      e.preventDefault();
+      clearTimeout(quiet);
+      quiet = setTimeout(() => { sum = 0; done = false; }, 250);
+      if (done) return;
+      sum += e.deltaX;
+      if (Math.abs(sum) < SWIPE.wheel) return;
+      done = true;
+      hintOff();
+      swipe(cover, -Math.sign(sum));
+    }, { passive: false });
+    swipeHint(cover);
+  }
+
+  /*
+   * That the cover can be swiped: each time the now-playing page opens while a radio plays, a faint 👎 « and » 👍 beside
+   * the cover (moodchannels.css mc-swipe-hint): the « » pulse outwards a few times while the 👎 / 👍 stay still, then
+   * all go together; a swipe meanwhile takes them away at once. Icons only, not buttons: the swipe is the vote. Placed
+   * by the cover's own layout place in .np-left (offsetLeft / offsetTop: not moved by the page sliding in).
+   */
+  const HINT = { gap: 22, pulses: 5 };
+  const CHEVRONS = '<svg class="mc-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6l6 6-6 6M12 6l6 6-6 6"/></svg>';
+  /** The chevrons' size, from the cover's. */
+  const hintSize = cover => Math.round(Math.min(28, Math.max(18, cover.offsetWidth * .05)));
+
+  function swipeHint(cover) {
+    const np = document.getElementById('np');
+    if (!np) return;
+    let was = np.classList.contains('on');
+    new MutationObserver(() => {
+      const on = np.classList.contains('on');
+      if (on === was) return;
+      was = on;
+      if (on && radioSource()) showHint(cover); else hintOff();
+    }).observe(np, { attributes: true, attributeFilter: ['class'] });
+  }
+
+  function showHint(cover) {
+    hintOff();
+    const left = cover.parentElement;
+    if (!left) return;
+    const y = cover.offsetTop + cover.offsetHeight / 2, size = hintSize(cover);
+    MC.hint = ['l', 'r'].map(side => {
+      // » 👍 on the right, 👎 « on the left
+      const el = h('div', { class: 'mc-swipe-hint ' + side, 'aria-hidden': 'true', html: CHEVRONS + THUMB });
+      el.style.setProperty('--mc-hint', size + 'px');
+      el.style.setProperty('--mc-pulses', HINT.pulses);
+      el.style.top = y + 'px';
+      el.style.left = (side === 'l' ? cover.offsetLeft - HINT.gap : cover.offsetLeft + cover.offsetWidth + HINT.gap) + 'px';
+      el.addEventListener('animationend', e => { if (e.target === el) el.remove(); });   // not the chevrons' pulses
+      left.append(el);
+      return el;
+    });
+  }
+
+  function hintOff() {
+    for (const el of MC.hint || []) el.remove();
+    MC.hint = null;
+  }
+
+  /** Where the drag left the cover, and the cover's own place again (the animation goes on from there). */
+  function dragged(cover) {
+    const at = { translate: cover.style.translate || '0px 0px', rotate: cover.style.rotate || '0deg' };
+    cover.style.translate = cover.style.rotate = '';
+    return at;
+  }
+
+  /** A drag too short to vote: the cover springs back. */
+  function settle(cover) {
+    cover.animate([dragged(cover), { translate: '0px 0px', rotate: '0deg' }], { duration: 380, easing: 'cubic-bezier(.2,.9,.3,1.25)' })
+      .finished.catch(() => {}).then(() => { if (!MC.swiping) lift(false); });
+  }
+
+  /**
+   * While the cover is dragged, flipped or flung, the page's content goes over the extensions' layer (#np-ext: the radio
+   * label on the left), so the cover passes over the label's words, not under them (moodchannels.css mc-swiping).
+   */
+  function lift(on) {
+    document.getElementById('np')?.classList.toggle('mc-swiping', on);
+  }
+
+  /** The 👍 / 👎 flashing in the middle of r, where the cover sits when not dragged nor turning; off: a 👍 taken back. */
+  function swipeBadge(r, yes, off) {
+    const b = h('div', { class: 'mc-swipe-badge ' + (yes ? 'yes' : 'no') + (off ? ' off' : ''), html: THUMB });
+    b.style.left = r.left + r.width / 2 + 'px';
+    b.style.top = r.top + r.height / 2 + 'px';
+    document.body.append(b);
+    b.addEventListener('animationend', () => b.remove());
+  }
+
+  /** The pointer's speed as it was let go, in px per ms ({ x, y }); none for a pointer that had stopped. */
+  function flung(moves) {
+    const a = moves[0], b = moves[moves.length - 1], dt = b && b.t - a.t;
+    return dt > 0 ? { x: (b.x - a.x) / dt, y: (b.y - a.y) / dt } : null;
+  }
+
+  async function swipe(cover, dir, v) {
+    MC.swiping = true;
+    lift(true);
+    const id = App.state && App.state.trackId, from = dragged(cover);
+    const home = cover.getBoundingClientRect();              // its own place: the flip's perspective would skew this later
+    try {
+      if (dir > 0) {
+        // 👍: back to its place and round once, the 👍 flashing as it faces front again; on a track already 👍 the swipe
+        // takes it back (a grey 👍 that shrinks away)
+        const undo = !!MC.radioVote && MC.radioVote.id === id && MC.radioVote.v > 0;
+        const pane = cover.parentElement, persp = pane.style.perspective;
+        pane.style.perspective = '1400px';
+        const flip = cover.animate([from, { translate: '0px 0px', rotate: 'y 0deg', offset: .2 }, { rotate: 'y 180deg', offset: .6 }, { translate: '0px 0px', rotate: 'y 360deg' }],
+          { duration: 620, easing: 'cubic-bezier(.3,.6,.3,1)' });
+        setTimeout(() => swipeBadge(home, true, undo), 380);
+        radioVote(1, !undo);
+        await flip.finished.catch(() => {});
+        pane.style.perspective = persp;
+      } else {
+        // 👎: it flies on out of the window as it was flung (at least FLING px/ms, to the left), the 👎 flashing where it
+        // was, and the next track's cover comes in
+        swipeBadge(home, false);
+        const x = parseFloat(from.translate) || 0, r = home;
+        const vx = Math.min(v ? v.x : 0, -FLING), vy = v ? Math.max(-1.5, Math.min(1.5, v.y)) : 0;
+        const ms = Math.min(700, Math.max(220, (r.right + 40) / -vx));   // to past the window's left edge at that speed
+        const spin = (parseFloat(from.rotate) || 0) + vx * ms / 12;
+        const fall = cover.animate([{ ...from, opacity: 1 }, { opacity: 1, offset: .7 }, { translate: `${x + vx * ms}px ${vy * ms}px`, rotate: `${spin}deg`, opacity: 0 }],
+          { duration: ms, easing: 'linear', fill: 'forwards' });
+        radioVote(-1, true);
+        await fall.finished.catch(() => {});
+        for (let t = 0; t < 30 && App.state && App.state.trackId === id; t++) await new Promise(r => setTimeout(r, 50));
+        fall.cancel();
+        await cover.animate([{ opacity: 0, scale: '.86' }, { opacity: 1, scale: '1' }], { duration: 420, easing: 'cubic-bezier(.2,.9,.3,1.2)' }).finished.catch(() => {});
+      }
+    } finally { MC.swiping = false; lift(false); }
+  }
+
+  /* ── 👍 / 👎 in the queue drawer's upcoming rows (MIKU's queueRow, in place of its remove button) ── */
+
+  /** The source a queue row plays under: the queue's, or the Smart Playlist's from where it goes on (as MIKU's slotSource). */
+  function rowSource(q, i) {
+    const c = q.continued;
+    return q.source || (c && i >= c.from ? { ext: c.ext, smart: true } : null);
+  }
+
+  /**
+   * What a row's vote is in: a radio or the Smart Playlist (that radio's votes), or a channel (the channel's votes; not
+   * Shuffle All, which is every track); null for none (MIKU's remove button stays).
+   */
+  function rowTarget(src) {
+    if (!src || src.ext !== 'moodchannels') return null;
+    if (src.radio || src.smart) return { kind: 'radio', src };
+    return src.channel != null && src.channel !== SHUFFLE_ALL && INFO[src.channel] ? { kind: 'channel', src, ch: src.channel } : null;
+  }
+
+  function queueRow(el, row) {
+    const t = rowTarget(row.source);
+    if (!t) return;
+    const v = voteButtons(x => rowVote(row, t, v, x));
+    v.vote = 0;
+    v.votes.hidden = false;
+    v.votes.classList.add('mc-qvotes');
+    // not MIKU's row: a click there (between the buttons too) plays the row; a double click in older MIKUs
+    v.votes.onclick = v.votes.ondblclick = e => e.stopPropagation();
+    showRowVote(v, t);
+    el.append(v.votes);
+    // the rows' votes asked for together, once the drawer is drawn
+    (MC.rowAsk = MC.rowAsk || []).push({ row, t, v });
+    if (MC.rowAsk.length === 1) queueMicrotask(askRowVotes);
+  }
+
+  function showRowVote(v, t) {
+    v.yes.setAttribute('aria-pressed', String(v.vote > 0));
+    v.no.setAttribute('aria-pressed', String(v.vote < 0));
+    const [yes, no] = t.kind === 'radio'
+      ? [`${t.src.smart ? 'Smart Playlist' : '這個電台'}多來點這種`, `${t.src.smart ? 'Smart Playlist' : '這個電台'}不要這首（移出佇列）`]
+      : [`這首屬於 ${INFO[t.ch].name}`, `這首不屬於 ${INFO[t.ch].name}（移出佇列）`];
+    v.yes.title = v.vote > 0 ? `取消（${yes}）` : yes;
+    v.no.title = v.vote < 0 ? `取消（${no.replace('（移出佇列）', '')}）` : no;
+  }
+
+  async function askRowVotes() {
+    const all = MC.rowAsk || [];
+    MC.rowAsk = [];
+    const groups = new Map();
+    for (const x of all) {
+      const key = x.t.kind === 'radio' ? 'r' + JSON.stringify(x.t.src) : 'c' + x.t.ch;
+      groups.set(key, (groups.get(key) || []).concat([x]));
+    }
+    for (const list of groups.values()) {
+      const t = list[0].t, ids = list.map(x => x.row.id);
+      const r = await (t.kind === 'radio' ? MC.api.rpc('radio.vote.many', { ids, source: t.src })
+                                          : MC.api.rpc('vote.many', { ids, channel: t.ch })).catch(() => null);
+      if (!r || !r.known) continue;
+      for (const x of list) {
+        if (!x.v.votes.isConnected || !(x.row.id in r.votes)) continue;
+        x.v.vote = r.votes[x.row.id] || 0;
+        showRowVote(x.v, x.t);
+      }
+    }
+  }
+
+  /** Where a track is in the queue after the track playing (it was at `at` when its row was drawn); -1 when gone. */
+  function upcomingIndex(id, at) {
+    const q = App.queue || {}, ids = q.ids || [];
+    if (at > q.index && ids[at] === id) return at;
+    for (let i = q.index + 1; i < ids.length; i++) if (ids[i] === id) return i;
+    return -1;
+  }
+
+  /**
+   * A vote on a row: 👎 takes the track out of the queue too (the channel, radio or Smart Playlist then picks another,
+   * the vote known: a channel draws from its tracks as the vote leaves them); otherwise the pick after it is drawn
+   * again at once (repickAfter). Pressing the lit one takes it back.
+   */
+  async function rowVote(row, t, v, x) {
+    const next = v.vote === x ? 0 : x;
+    const r = await (t.kind === 'radio' ? MC.api.rpc('radio.vote', { id: row.id, source: t.src, vote: next })
+                                        : MC.api.rpc('vote', { id: row.id, channel: t.ch, vote: next })).catch(() => null);
+    if (!r || r.known === false) { toast('沒有記下來，請再按一次'); return; }
+    v.vote = r.vote || 0;
+    showRowVote(v, t);
+    if (t.kind === 'channel') {                              // the channel's sizes may have changed
+      MC.counts = null;
+      if (MC.pageView && MC.pageView.isConnected) renderPage(MC.pageView);
+    }
+    const i = upcomingIndex(row.id, row.i);
+    if (next < 0) { if (i >= 0) Host.call('queue.remove', { i }); }
+    else if (i >= 0) repickAfter(row.id, i);
+  }
+
+  /**
+   * A vote counts for the very next pick: the track after the voted one, when it is the queue's last and MoodWave's
+   * pick (not one the listener queued), is picked again with the vote known (a channel: at random from its tracks as
+   * they are after the vote; a radio or the Smart Playlist: by its seeds and votes) and swapped (the new one added
+   * before the old one goes, so MIKU does not ask for another meanwhile).
+   */
+  async function repickAfter(id, at) {
+    const q = App.queue || {}, ids = (q.ids || []).slice();
+    const i = ids[at] === id ? at : ids.indexOf(id);
+    if (i < 0 || i !== ids.length - 2) return;
+    const old = ids[i + 1], src = rowSource(q, i + 1), t = rowTarget(src);
+    if (!t) return;
+    const s = await (t.kind === 'radio' ? MC.api.rpc('radio.vote.many', { ids: [old], source: src })
+                                        : MC.api.rpc('vote.many', { ids: [old], channel: t.ch })).catch(() => null);
+    if (!s || !s.known || !(s.picked || []).includes(old)) return;
+    const r = await MC.api.rpc('radio.next', { played: ids.slice(Math.max(0, i + 1 - 50), i + 1), source: src }).catch(() => null);
+    const pick = r && r.ids && r.ids[0];
+    const now = (App.queue || {}).ids || [];
+    // only onto the queue as it was (nothing played on, added or taken out meanwhile)
+    if (!pick || pick === old || now.length !== ids.length || now[i + 1] !== old || now[i] !== id) return;
+    await Host.call('queue.add', { ids: [pick] });
+    const after = (App.queue || {}).ids || [];
+    if (after[i + 1] === old) Host.call('queue.remove', { i: i + 1 });
   }
 
   /**
@@ -782,6 +1093,8 @@
     setVotes(t, r);
     MC.counts = null;                                      // the channels' sizes may have changed
     if (MC.pageView && MC.pageView.isConnected) renderPage(MC.pageView);   // the channel page open: its counts at once
+    // the channel worked out again with the vote: the track queued next is drawn again from it, then a 👎 skips
+    await repickAfter(t.id, (App.queue || {}).index);
     if (next < 0) skipOut(t.id);                         // the lit button is the feedback: no message
   }
 
@@ -1060,6 +1373,7 @@
     async init(api) {
       MC.api = api;
       defs();
+      coverSwipe();
       // the cards' hover lift in whole screen pixels at this display scaling (moodchannels.css)
       const lift = () => document.documentElement.style.setProperty('--mc-lift', Math.round(6 * devicePixelRatio) / devicePixelRatio + 'px');
       lift();
@@ -1073,9 +1387,17 @@
         swap: (prev, next) => !(prev && next && prev.channel != null && next.channel != null) });
       // the mark before 「MoodWave Smart Playlist 已開啟」 under MIKU's 佇列播完後
       if (api.continueMark) api.continueMark(() => { const t = document.createElement('template'); t.innerHTML = logo('mc-cont-logo'); return t.content.firstChild; });
-      // the queue drawer's header while MoodWave chooses what plays: a radio, or what comes after the list (auto-continue)
+      // the queue drawer's header while MoodWave chooses what plays: a channel, a radio, or what comes after the list
+      // (auto-continue)
       if (api.queueHead) api.queueHead((el, src) => {
-        const radio = src && src.ext === 'moodchannels' && src.radio;
+        const ours = src && src.ext === 'moodchannels';
+        if (ours && !src.radio && INFO[src.channel]) {
+          el.append(h('div', { class: 'mc-qhead' },
+            h('span', { class: 'mc-qhead-mark', html: logo('mc-qhead-logo') }),
+            h('span', { class: 'mc-qhead-text' }, h('b', null, 'MoodWave Channel'), h('small', null, INFO[src.channel].name))));
+          return;
+        }
+        const radio = ours && src.radio;
         const after = !radio && radioReady() && App.settings.autoContinue === 'similar' && ((App.state && App.state.repeat) || 'off') === 'off';
         if (!radio && !after) return;
         el.append(h('div', { class: 'mc-qhead' },
@@ -1083,6 +1405,8 @@
           h('span', { class: 'mc-qhead-text' }, h('b', null, 'MoodWave Smart Playlist'),
             h('small', null, radio ? `${RADIO_KIND[radio.kind] || '電台'} · ${radio.name || ''}` : '播完後接著播放相似的歌'))));
       });
+      // 👍 / 👎 at the right of the upcoming rows while MoodWave plays (a radio, the Smart Playlist, a channel)
+      if (api.queueRow) api.queueRow(queueRow);
       // the song radio from a track, its artist or an album (only with the advanced AI and some of it analysed)
       if (api.addMenu) {
         api.addMenu('track', t => radioReady() ? [
@@ -1149,6 +1473,10 @@
         MC.basicBody.append(tuningBox);
         MC.basicBody.append(ui.field('CPU 執行緒', `越多越快，但會佔用較多 CPU；播放時建議保留餘裕（這台電腦有 ${cpus} 個）`,
           ui.select(Array.from({ length: cpus }, (_, i) => [i + 1, `${i + 1} 條`]), s.threads || 1, v => api.rpc('set', { threads: +v }).then(set))));
+        // the analyses' disk speed while a track plays (the basic one's reader, and the advanced AI's): a USB hard disk is
+        // not starved. In the basic card: it applies without the advanced AI too
+        MC.basicBody.append(ui.field('限制分析速度', '播放時限制背景分析讀取硬碟的速度，避免和播放搶硬碟造成斷音（音樂放在 USB 外接硬碟時特別有用）；暫停或停止播放時照常全速分析',
+          ui.select([[4, '4 MB/s'], [8, '8 MB/s'], [16, '16 MB/s'], [0, '無限制']], s.readLimit ?? 0, v => api.rpc('set', { readLimit: +v }).then(set))));
         MC.block = h('div', { class: 'mc-progress' });
         MC.basicBody.append(h('div', { class: 'field mc-field' }, MC.block));
         sect.append(card('基本功能',
