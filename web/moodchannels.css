@@ -393,17 +393,30 @@ html:root.mc-radio #np-cover.mc-dragging { cursor: grabbing; }
   0% { opacity: 0; transform: scale(.3); } 30% { opacity: 1; transform: scale(1.05); } 50% { opacity: 1; transform: scale(1); }
   100% { opacity: 0; transform: scale(.2); }
 }
-/* the cover can be swiped: a faint » 👍 right of it and 👎 « left of it, in the page's ink and MIKU's icon strokes, pulsing
+/* the cover can be swiped: a faint » right of it and « left of it, in the page's ink and MIKU's icon strokes, pulsing
    outwards a few times as the page opens (moodchannels.js swipeHint; --mc-hint: the chevrons' size, from the cover's) */
-.mc-swipe-hint { position: absolute; z-index: 1; display: flex; align-items: center; gap: calc(var(--mc-hint, 24px) * .25);
-  pointer-events: none; opacity: 0; color: rgb(var(--np-ink, 255, 255, 255)); animation: mc-swipe-hint 1.5s ease-in-out .7s both; }
-.mc-swipe-hint svg { display: block; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.mc-swipe-hint .mc-chev { width: var(--mc-hint, 24px); height: var(--mc-hint, 24px); }
-.mc-swipe-hint .i { width: calc(var(--mc-hint, 24px) * .75); height: calc(var(--mc-hint, 24px) * .75); }
+.mc-swipe-hint { position: absolute; z-index: 1; pointer-events: none; opacity: 0; color: rgb(var(--np-ink, 255, 255, 255));
+  animation: mc-swipe-hint 1.5s ease-in-out .7s both; }
+.mc-swipe-hint svg { display: block; width: var(--mc-hint, 24px); height: var(--mc-hint, 24px); fill: none; stroke: currentColor;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .mc-swipe-hint.r { transform: translateY(-50%); --mc-nudge: 7px; }
-.mc-swipe-hint.l { transform: translate(-100%, -50%); flex-direction: row-reverse; --mc-nudge: -7px; }
-.mc-swipe-hint.l .mc-chev { transform: scaleX(-1); }
-.mc-swipe-hint.l .i { transform: rotate(180deg); }
+.mc-swipe-hint.l { transform: translate(-100%, -50%) scaleX(-1); --mc-nudge: -7px; }
+/* past them the page's 👎 / 👍, always there while the radio's vote is known: as faint, the track's vote lit (coverVotes) */
+.mc-cover-votes { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 1; }
+.mc-cover-votes[hidden] { display: none; }
+.mc-cover-vote { position: absolute; display: grid; place-items: center; width: calc(var(--mc-hint, 24px) + 14px); aspect-ratio: 1;
+  margin: 0; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; color: rgb(var(--np-ink, 255, 255, 255));
+  opacity: .38; transition: opacity .2s, color .2s, scale .2s var(--spring, ease); }
+.mc-cover-vote.yes { transform: translateY(-50%); }
+.mc-cover-vote.no { transform: translate(-100%, -50%); }
+.mc-cover-vote .i { width: calc(var(--mc-hint, 24px) * .8); height: calc(var(--mc-hint, 24px) * .8); stroke-width: 1.8; }
+.mc-cover-vote.no .i { rotate: 180deg; }
+.mc-cover-vote:hover { opacity: .7; }
+.mc-cover-vote:active { scale: .9; }
+.mc-cover-vote:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.mc-cover-vote.yes[aria-pressed="true"] { color: var(--teal); opacity: .9; }
+.mc-cover-vote.no[aria-pressed="true"] { color: #e0567a; opacity: .9; }
+@media (max-width: 1100px) { .mc-cover-votes { display: none; } }   /* the narrow layout: as the radio label (.mc-radio-rail) */
 @keyframes mc-swipe-hint {
   0% { opacity: 0; translate: 0 0; } 45% { opacity: .38; } 70% { translate: var(--mc-nudge) 0; } 100% { opacity: 0; translate: var(--mc-nudge) 0; }
 }
