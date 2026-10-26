@@ -6,8 +6,8 @@
 |---|---|
 | Version | 1.0 |
 | Date | 2026-10-26 |
-| MoodWave | `main` a480ead |
-| MIKU | `main` adf5936, with MIKU pull requests #46 and #47 |
+| MoodWave | `main`, with pull request #14 (swipe votes) |
+| MIKU | `main` 23d83eb (with pull requests #46, #47 and #49) |
 | Language | ASD-STE100 (Simplified Technical English). The Chinese text (`spec.zh-TW.md`) is a translation of this text. |
 
 This document tells how MoodWave operates now.
@@ -376,7 +376,33 @@ Then MoodWave does these steps:
 
 While a radio plays, the player bar shows the radio label.
 The label shows the MoodWave mark, the type of radio and its start, and 👍 and 👎.
-A click on the label opens the now-playing page (7.4).
+A click on the label opens the now-playing page (7.5).
+
+The now-playing page also shows the radio label, at the left of the cover.
+On this page, the label has no 👍 and 👎. The listener gives a vote with the cover (5.7).
+The name on this label can use up to 3 lines.
+If the window is 1100 pixels wide or less, this label does not show.
+
+### 5.7 Swipe votes on the cover
+
+While a radio or the Smart Playlist plays, the listener can give a vote with the cover on the now-playing page.
+
+| Action | Effect |
+|---|---|
+| Move the cover to the right | 👍. The cover turns one time, and a 👍 shows on it. |
+| Move the cover to the right, on a track with 👍 | MoodWave removes the 👍. |
+| Move the cover to the left | 👎. The cover moves out of the window, a 👎 shows, and the next track plays. |
+| Move the cover less than 90 pixels | No vote. The cover goes back to its position. |
+| Move the cover up or down | No vote. |
+
+The listener can move the cover with the mouse or with a finger on a touch screen.
+On a trackpad, the listener can move two fingers to the side.
+The vote has the same effect as the vote on the player bar (5.3, 6.5).
+
+Each time the now-playing page opens, a faint 👎 shows at the left of the cover and a faint 👍 at the right.
+They show 5 times and then go away. They are not buttons.
+
+Channels do not have swipe votes. While a channel plays, the now-playing page shows the channel list with 👍 and 👎.
 
 ## 6. Smart Playlist
 
@@ -454,6 +480,7 @@ The tracks from the play records of the last 2 hours are also never picks.
 The Smart Playlist has one set of votes.
 All Smart Playlist sessions use this set.
 The listener can give a vote on the player bar or on a pick in the queue drawer.
+The listener can also move the cover on the now-playing page (5.7).
 
 A vote has these effects on the next pick:
 
@@ -469,6 +496,7 @@ The Smart Playlist uses the procedure in 5.4 and 5.5.
 ### 6.7 The Smart Playlist label
 
 While the Smart Playlist plays its picks, the player bar shows the radio label (5.6) with the name "Smart Playlist".
+The swipe votes on the cover (5.7) also apply.
 
 ### 6.8 Example of a calculation
 
@@ -754,6 +782,7 @@ The page calls the service with `ext.moodchannels.<name>`:
 - MIKU issue #45: when the listener plays a track after the next track, the tracks between stay under "已播放" (7.3).
 - There is no list of all votes yet. The listener can change a vote only on a track that plays or is in the queue (TODO: "我的投票").
 - The speed limit did not decrease the stops of the sound in a test, because the test computer had no stops (3.5).
+- On macOS, a two-finger swipe to the side on the cover gives a vote (5.7). MIKU uses the same movement to go back to the previous page. Thus the listener can give a vote by accident. This is not examined yet.
 
 ## Appendix A. Summary of earlier decisions
 
@@ -767,4 +796,5 @@ The page calls the service with `ext.moodchannels.<name>`:
 | 2026-10-19 | The macOS version uses a helper process with the same service code. |
 | 2026-10-20 | The repository is public (PolyForm Noncommercial 1.0.0, with a permission for MIKU). |
 | 2026-10-26 | Radios, channels and the Smart Playlist add one track at a time. Votes in the queue. |
-| 2026-10-26 | "限制分析速度" is added. The default is no limit. |
+| 2026-10-26 | "限制分析速度" is added. The default is no limit. Later, it moved to the basic card. |
+| 2026-10-26 | Swipe votes on the cover of the now-playing page. The radio label on that page has no vote buttons. |
