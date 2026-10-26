@@ -152,6 +152,11 @@ const tick = () => sleep(20);
     p.add(['a4t4']);
     p.remove(3); await tick();
     check('a track taken out that leaves another after the one playing: not asked', m.asks.length === 2, m.asks.length);
+    // paused: the pick comes back at once too (not only when the track is over after the listener plays on)
+    p.engine.isPlaying = false;
+    p.remove(2); await tick();
+    check('taken out while paused: asked again, the new pick added', m.asks.length === 3 && p.queue.join() === 'a1t1,a2t2,a3t3', { asks: m.asks.length, q: p.queue });
+    p.engine.isPlaying = true;
     // random songs (「佇列播完後」 random) do not come back at once when the listener takes the last one out
     const r = make({ autoContinue: 'tracks' });
     await r.p.playList(['a1t1', 'a1t2'], 0, false);
