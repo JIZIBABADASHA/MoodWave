@@ -208,7 +208,7 @@ public sealed class MoodService
         var ai = JsonSerializer.SerializeToNode(_clap?.Status()
             ?? new { enabled = Setting("ai", false), segmentSetting = AiSegments, gpu = Setting("aiGpu", true), gpuCapable = OperatingSystem.IsWindows() })!.AsObject();
         if (_clapModel != null) ai["download"] = JsonSerializer.SerializeToNode(_clapModel.Status());
-        ai["readLimit"] = _queue != null ? _readLimit : ReadLimitSetting();   // 限制分析速度 (MB a second; 0: none)
+        o["readLimit"] = _queue != null ? _readLimit : ReadLimitSetting();    // 限制分析速度 (MB a second; 0: none), both analyses
         o["ai"] = ai;
         return o;
     }

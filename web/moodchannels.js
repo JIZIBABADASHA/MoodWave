@@ -133,10 +133,6 @@
     box.append(ui.field('每首分析段數', '每首取幾段 10 秒的片段來分析。越多越準確，但也越慢；之後調高時只補算缺少的段落',
       ui.select([[0, `自動（${auto} 段）`], [6, '6 段（最快）'], [9, '9 段'], [12, '12 段（最準確）']], ai.segmentSetting || 0,
         v => MC.api.rpc('set', { aiSegments: +v }).then(set))));
-    // the analysis' disk speed while a track plays (the basic analysis' reader too): a USB hard disk is not starved
-    box.append(ui.field('限制分析速度', '播放時限制背景分析讀取硬碟的速度，避免和播放搶硬碟造成斷音（音樂放在 USB 外接硬碟時特別有用）；暫停或停止播放時照常全速分析',
-      ui.select([[4, '4 MB/s'], [8, '8 MB/s'], [16, '16 MB/s'], [0, '無限制']], ai.readLimit ?? 0,
-        v => MC.api.rpc('set', { readLimit: +v }).then(set))));
   }
 
   /** The sidebar's MoodWave link: only while MoodWave is on (leaving its page when it is turned off there). */
@@ -1291,6 +1287,10 @@
         MC.basicBody.append(tuningBox);
         MC.basicBody.append(ui.field('CPU 執行緒', `越多越快，但會佔用較多 CPU；播放時建議保留餘裕（這台電腦有 ${cpus} 個）`,
           ui.select(Array.from({ length: cpus }, (_, i) => [i + 1, `${i + 1} 條`]), s.threads || 1, v => api.rpc('set', { threads: +v }).then(set))));
+        // the analyses' disk speed while a track plays (the basic one's reader, and the advanced AI's): a USB hard disk is
+        // not starved. In the basic card: it applies without the advanced AI too
+        MC.basicBody.append(ui.field('限制分析速度', '播放時限制背景分析讀取硬碟的速度，避免和播放搶硬碟造成斷音（音樂放在 USB 外接硬碟時特別有用）；暫停或停止播放時照常全速分析',
+          ui.select([[4, '4 MB/s'], [8, '8 MB/s'], [16, '16 MB/s'], [0, '無限制']], s.readLimit ?? 0, v => api.rpc('set', { readLimit: +v }).then(set))));
         MC.block = h('div', { class: 'mc-progress' });
         MC.basicBody.append(h('div', { class: 'field mc-field' }, MC.block));
         sect.append(card('基本功能',

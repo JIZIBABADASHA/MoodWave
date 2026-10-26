@@ -169,7 +169,7 @@ The listener can pause each analysis with its own "暫停" button.
 
 ### 3.5 Speed limit of the analysis
 
-The setting "限制分析速度" limits how fast the analysis reads the disk while a track plays.
+The setting "限制分析速度" in the basic card limits how fast the analysis reads the disk while a track plays.
 
 | Setting | Limit |
 |---|---|
@@ -662,17 +662,17 @@ When a channel starts, its first track is a track with a measured loudness, if p
 | 啟用 MoodWave | On, off | On | `enabled` |
 | 使用內建的頻道調整 | On, off | On | `builtin` |
 | CPU 執行緒 | 1 to the number of cores | 1 | `threads` |
+| 限制分析速度 | 4, 8, 16 MB/s, 無限制 | 無限制 | `readLimit` |
 
 ### 9.2 Advanced AI card
 
 | Setting | Values | Default | Key |
 |---|---|---|---|
-| MoodWave Smart Playlist | On, off | On when the advanced AI starts (6.2) | MIKU `autoContinue` = `similar` |
 | 啟用進階 AI | On, off | Off | `ai` |
+| MoodWave Smart Playlist | On, off | On when the advanced AI starts (6.2) | MIKU `autoContinue` = `similar` |
 | 使用 GPU (Windows) | On, off | On | `aiGpu` |
 | CPU 執行緒 (on the CPU) | 自動, 1 to the number of cores | 自動 (half of the cores) | `aiThreads` |
 | 每首分析段數 | 自動, 6, 9, 12 | 自動 | `aiSegments` |
-| 限制分析速度 | 4, 8, 16 MB/s, 無限制 | 無限制 | `readLimit` |
 
 ### 9.3 Analysis data
 
@@ -752,7 +752,6 @@ The page calls the service with `ext.moodchannels.<name>`:
 ## 12. Known limits and open items
 
 - MIKU issue #45: when the listener plays a track after the next track, the tracks between stay under "已播放" (7.3).
-- "限制分析速度" is in the advanced AI card. Thus the listener can see it only when the advanced AI is on. But it also applies to the basic analysis.
 - There is no list of all votes yet. The listener can change a vote only on a track that plays or is in the queue (TODO: "我的投票").
 - The speed limit did not decrease the stops of the sound in a test, because the test computer had no stops (3.5).
 
