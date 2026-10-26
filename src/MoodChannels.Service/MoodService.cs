@@ -9,7 +9,7 @@ namespace MoodChannels.Service;
 /// "enabled" (analysis and the page, default on), "threads" (default 1), "builtin" (the built-in tuning, default on);
 /// the advanced AI (CLAP embeddings, ClapQueue): "ai" (default off), "aiSegments" (6 / 9 / 12; unset: 12 with a GPU,
 /// 6 on the processor), "aiGpu" (default on), "aiThreads" (on the processor; 0, the default: half the cores),
-/// "readLimit" (the analysis' disk speed while a track plays, MB a second: 4 / 8 / 16, 0 none; default 8).
+/// "readLimit" (the analysis' disk speed while a track plays, MB a second: 4 / 8 / 16, 0 none, the default).
 /// It measures each track's loudness too, which the player's ReplayGain uses to level tracks (TryGetLoudness). The
 /// player is reached only through <see cref="IMoodHost"/>.
 /// </summary>
@@ -168,7 +168,7 @@ public sealed class MoodService
     /// this fast, 1 MB at a time, so a player reading from the same disk (a USB hard disk) is not starved.
     /// </summary>
     public static readonly int[] ReadLimits = { 4, 8, 16, 0 };
-    const int DefaultReadLimit = 8;
+    const int DefaultReadLimit = 0;
     volatile int _readLimit = DefaultReadLimit;
 
     int ReadLimitSetting() { int mb = Setting("readLimit", DefaultReadLimit); return ReadLimits.Contains(mb) ? mb : DefaultReadLimit; }

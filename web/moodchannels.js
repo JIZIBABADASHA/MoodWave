@@ -135,7 +135,7 @@
         v => MC.api.rpc('set', { aiSegments: +v }).then(set))));
     // the analysis' disk speed while a track plays (the basic analysis' reader too): a USB hard disk is not starved
     box.append(ui.field('限制分析速度', '播放時限制背景分析讀取硬碟的速度，避免和播放搶硬碟造成斷音（音樂放在 USB 外接硬碟時特別有用）；暫停或停止播放時照常全速分析',
-      ui.select([[4, '4 MB/s'], [8, '8 MB/s'], [16, '16 MB/s'], [0, '無限制']], ai.readLimit ?? 8,
+      ui.select([[4, '4 MB/s'], [8, '8 MB/s'], [16, '16 MB/s'], [0, '無限制']], ai.readLimit ?? 0,
         v => MC.api.rpc('set', { readLimit: +v }).then(set))));
   }
 
