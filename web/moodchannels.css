@@ -416,6 +416,11 @@ html:root.mc-radio #np-cover.mc-dragging { cursor: grabbing; }
 .mc-swipe-hint.l { transform: translate(-100%, -50%); flex-direction: row-reverse; --mc-nudge: -7px; }
 .mc-swipe-hint.l .mc-chev { transform: scaleX(-1); }
 .mc-swipe-hint.l .i { transform: rotate(180deg); }
+/* no room beside the cover (moodchannels.js crowded): on the cover's own edge, white with a soft shadow to read on any art */
+.mc-swipe-hint.in { color: #fff; filter: drop-shadow(0 1px 3px rgba(0,0,0,.6)); }
+.mc-swipe-hint.in .i { opacity: .7; }
+.mc-swipe-hint.r.in { transform: translate(-100%, -50%); }
+.mc-swipe-hint.l.in { transform: translateY(-50%); }
 @keyframes mc-swipe-hint {
   0% { opacity: 0; translate: 0 0; } 45% { opacity: .38; } 70% { translate: var(--mc-nudge) 0; } 100% { opacity: 0; translate: var(--mc-nudge) 0; }
 }
