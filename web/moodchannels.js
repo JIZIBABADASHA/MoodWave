@@ -607,9 +607,10 @@
    * That the cover can be swiped: each time the now-playing page opens while a radio plays, a faint 👎 « and » 👍 beside
    * the cover (moodchannels.css mc-swipe-hint): the « » pulse outwards a few times while the 👎 / 👍 stay still, then
    * all go together; a swipe meanwhile takes them away at once. Icons only, not buttons: the swipe is the vote. Placed
-   * by the cover's own layout place in .np-left (offsetLeft / offsetTop: not moved by the page sliding in).
+   * by the cover's own layout place in .np-left (offsetLeft / offsetTop: not moved by the page sliding in). A side with
+   * no room beside the cover (a narrow window puts the song info right next to it) goes on the cover's edge instead.
    */
-  const HINT = { gap: 22, pulses: 5 };
+  const HINT = { gap: 22, inset: 14, pulses: 5 };
   const CHEVRONS = '<svg class="mc-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6l6 6-6 6M12 6l6 6-6 6"/></svg>';
   /** The chevrons' size, from the cover's. */
   const hintSize = cover => Math.round(Math.min(28, Math.max(18, cover.offsetWidth * .05)));
@@ -640,7 +641,24 @@
       el.style.left = (side === 'l' ? cover.offsetLeft - HINT.gap : cover.offsetLeft + cover.offsetWidth + HINT.gap) + 'px';
       el.addEventListener('animationend', e => { if (e.target === el) el.remove(); });   // not the chevrons' pulses
       left.append(el);
+      if (crowded(el, left, cover)) {
+        // no room beside the cover (the song info next to it, or the window's edge): on the cover's own edge instead
+        el.classList.add('in');
+        el.style.left = (side === 'l' ? cover.offsetLeft + HINT.inset : cover.offsetLeft + cover.offsetWidth - HINT.inset) + 'px';
+      }
       return el;
+    });
+  }
+
+  /** Whether the hint beside the cover touches what else is in .np-left (title, artist, badges …) or leaves the window. */
+  function crowded(el, left, cover) {
+    const r = el.getBoundingClientRect();
+    if (r.left < 0 || r.right > window.innerWidth) return true;
+    const near = 6;
+    return [...left.querySelectorAll(':scope > *, .np-info > *')].some(o => {
+      if (o === cover || o === el || o.classList.contains('mc-swipe-hint')) return false;
+      const b = o.getBoundingClientRect();
+      return b.width > 0 && b.height > 0 && b.left < r.right + near && b.right > r.left - near && b.top < r.bottom && b.bottom > r.top;
     });
   }
 
