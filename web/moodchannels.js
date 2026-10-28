@@ -625,21 +625,26 @@
       was = on;
       if (on && radioSource()) showHint(cover); else hintOff();
     }).observe(np, { attributes: true, attributeFilter: ['class'] });
+    cover.addEventListener('pointerenter', e => {
+      if (e.pointerType === 'mouse' && !e.buttons && !MC.swiping && np.classList.contains('on') && radioSource()) showHint(cover, true);
+    });
+    cover.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hintFade(); });
   }
 
-  function showHint(cover) {
+  /** hover: the mouse over the cover; the « » pulse until it leaves (hintFade). */
+  function showHint(cover, hover) {
     hintOff();
     const left = cover.parentElement;
     if (!left) return;
     const y = cover.offsetTop + cover.offsetHeight / 2, size = hintSize(cover);
     MC.hint = ['l', 'r'].map(side => {
       // » 👍 on the right, 👎 « on the left
-      const el = h('div', { class: 'mc-swipe-hint ' + side, 'aria-hidden': 'true', html: CHEVRONS + THUMB });
+      const el = h('div', { class: 'mc-swipe-hint ' + side + (hover ? ' hover' : ''), 'aria-hidden': 'true', html: CHEVRONS + THUMB });
       el.style.setProperty('--mc-hint', size + 'px');
       el.style.setProperty('--mc-pulses', HINT.pulses);
       el.style.top = y + 'px';
       el.style.left = (side === 'l' ? cover.offsetLeft - HINT.gap : cover.offsetLeft + cover.offsetWidth + HINT.gap) + 'px';
-      el.addEventListener('animationend', e => { if (e.target === el) el.remove(); });   // not the chevrons' pulses
+      if (!hover) el.addEventListener('animationend', e => { if (e.target === el) el.remove(); });   // not the chevrons' pulses
       left.append(el);
       if (crowded(el, left, cover)) {
         // no room beside the cover (the song info next to it, or the window's edge): on the cover's own edge instead
@@ -665,6 +670,17 @@
   function hintOff() {
     for (const el of MC.hint || []) el.remove();
     MC.hint = null;
+  }
+
+  /** The mouse gone from the cover: a hover hint fades away (the page-open one runs its course). */
+  function hintFade() {
+    const els = MC.hint;
+    if (!els || !els[0].classList.contains('hover')) return;
+    MC.hint = null;
+    for (const el of els) {
+      el.animate([{ opacity: getComputedStyle(el).opacity }, { opacity: 0 }], { duration: 250, easing: 'ease-out', fill: 'forwards' })
+        .finished.catch(() => {}).then(() => el.remove());
+    }
   }
 
   /** Where the drag left the cover, and the cover's own place again (the animation goes on from there). */
@@ -723,21 +739,32 @@
         pane.style.perspective = persp;
       } else {
         // 👎: it flies on out of the window as it was flung (at least FLING px/ms, to the left), the 👎 flashing where it
-        // was, and the next track's cover comes in
+        // was, and the next track's cover comes in. What flies is a copy of the cover as it is: the next track starts at
+        // once and changes the real cover's picture, which must not show on the one still flying out.
         swipeBadge(home, false);
         const x = parseFloat(from.translate) || 0, r = home;
         const vx = Math.min(v ? v.x : 0, -FLING), vy = v ? Math.max(-1.5, Math.min(1.5, v.y)) : 0;
         const ms = Math.min(700, Math.max(220, (r.right + 40) / -vx));   // to past the window's left edge at that speed
         const spin = (parseFloat(from.rotate) || 0) + vx * ms / 12;
-        const fall = cover.animate([{ ...from, opacity: 1 }, { opacity: 1, offset: .7 }, { translate: `${x + vx * ms}px ${vy * ms}px`, rotate: `${spin}deg`, opacity: 0 }],
+        const ghost = cover.cloneNode(true), pic = () => cover.querySelector('img'), was = (pic() || {}).src;
+        ghost.removeAttribute('id');
+        Object.assign(ghost.style, { position: 'absolute', left: cover.offsetLeft + 'px', top: cover.offsetTop + 'px', width: cover.offsetWidth + 'px',
+          height: cover.offsetHeight + 'px', margin: '0', boxSizing: 'border-box', pointerEvents: 'none', zIndex: '1' });
+        cover.after(ghost);
+        cover.style.opacity = '0';
+        const fall = ghost.animate([{ ...from, opacity: 1 }, { opacity: 1, offset: .7 }, { translate: `${x + vx * ms}px ${vy * ms}px`, rotate: `${spin}deg`, opacity: 0 }],
           { duration: ms, easing: 'linear', fill: 'forwards' });
         radioVote(-1, true);
         await fall.finished.catch(() => {});
-        for (let t = 0; t < 30 && App.state && App.state.trackId === id; t++) await new Promise(r => setTimeout(r, 50));
-        fall.cancel();
+        ghost.remove();
+        // until the next track's picture is in (it comes a little after the track): the old one must not come back in
+        // (a next track from the same album keeps the same picture: then not longer than 0.6 s)
+        for (let t = 0; t < 30 && ((App.state && App.state.trackId === id) || (pic() && ((t < 12 && pic().src === was) || !pic().complete))); t++)
+          await new Promise(r => setTimeout(r, 50));
+        cover.style.opacity = '';
         await cover.animate([{ opacity: 0, scale: '.86' }, { opacity: 1, scale: '1' }], { duration: 420, easing: 'cubic-bezier(.2,.9,.3,1.2)' }).finished.catch(() => {});
       }
-    } finally { MC.swiping = false; lift(false); }
+    } finally { cover.style.opacity = ''; MC.swiping = false; lift(false); }
   }
 
   /* ── 👍 / 👎 in the queue drawer's upcoming rows (MIKU's queueRow, in place of its remove button) ── */
