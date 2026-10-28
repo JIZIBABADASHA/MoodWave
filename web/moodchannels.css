@@ -416,13 +416,16 @@ html:root.mc-radio #np-cover.mc-dragging { cursor: grabbing; }
 .mc-swipe-hint.l { transform: translate(-100%, -50%); flex-direction: row-reverse; --mc-nudge: -7px; }
 .mc-swipe-hint.l .mc-chev { transform: scaleX(-1); }
 .mc-swipe-hint.l .i { transform: rotate(180deg); }
-/* no room beside the cover (moodchannels.js crowded): on the cover's own edge, white with a soft shadow to read on any art */
-.mc-swipe-hint.in { color: #fff; filter: drop-shadow(0 1px 3px rgba(0,0,0,.6)); }
-.mc-swipe-hint.in .i { opacity: .7; }
+/* no room beside the cover (moodchannels.js crowded): on the cover's own edge, white on a dark pill so it reads as clearly
+   as the hint beside the cover does, on any art (faint white icons alone vanish on a light cover) */
+.mc-swipe-hint.in { color: #fff; --mc-peak: .95; padding: calc(var(--mc-hint, 24px) * .2) calc(var(--mc-hint, 24px) * .35);
+  border-radius: 999px; background: rgba(0,0,0,.5); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  box-shadow: 0 1px 6px rgba(0,0,0,.35); }
+.mc-swipe-hint.in .i { opacity: 1; }
 .mc-swipe-hint.r.in { transform: translate(-100%, -50%); }
 .mc-swipe-hint.l.in { transform: translateY(-50%); }
 @keyframes mc-swipe-hint {
-  0% { opacity: 0; translate: 0 0; } 45% { opacity: .38; } 70% { translate: var(--mc-nudge) 0; } 100% { opacity: 0; translate: var(--mc-nudge) 0; }
+  0% { opacity: 0; translate: 0 0; } 45% { opacity: var(--mc-peak, .38); } 70% { translate: var(--mc-nudge) 0; } 100% { opacity: 0; translate: var(--mc-nudge) 0; }
 }
 /* the whole hint: in as the pulses start, out as they end (the 👎 / 👍 with them) */
 @keyframes mc-swipe-hint-show { 0%, 8% { opacity: 0; } 13%, 94% { opacity: 1; } 100% { opacity: 0; } }

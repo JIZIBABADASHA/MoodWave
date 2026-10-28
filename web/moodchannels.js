@@ -648,8 +648,10 @@
       left.append(el);
       if (crowded(el, left, cover)) {
         // no room beside the cover (the song info next to it, or the window's edge): on the cover's own edge instead
+        // (a small cover, as the narrow window's compact bar has: the pill as far in as it needs to stay on it)
         el.classList.add('in');
-        el.style.left = (side === 'l' ? cover.offsetLeft + HINT.inset : cover.offsetLeft + cover.offsetWidth - HINT.inset) + 'px';
+        const inset = Math.min(HINT.inset, (cover.offsetWidth - el.offsetWidth) / 2);
+        el.style.left = (side === 'l' ? cover.offsetLeft + inset : cover.offsetLeft + cover.offsetWidth - inset) + 'px';
       }
       return el;
     });
