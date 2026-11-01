@@ -416,30 +416,29 @@ html:root.mc-radio #np-cover.mc-dragging { cursor: grabbing; }
 .mc-swipe-hint.l { transform: translate(-100%, -50%); flex-direction: row-reverse; --mc-nudge: -7px; }
 .mc-swipe-hint.l .mc-chev { transform: scaleX(-1); }
 .mc-swipe-hint.l .i { transform: rotate(180deg); }
-/* no room for the icons beside the cover (moodchannels.js crowded): a soft warm light bleeds out from behind its left and
-   right edges instead, like a hidden light strip: brightest and tallest at the cover's edge, tapering away from it to a
-   soft point, so it leads the eye outwards; waves of it run outwards (two per pulse, ::before and ::after) as if the
-   cover could be pulled either way. Radial gradients centred on the cover's edge, behind the cover (z-index -1 in
-   .np-left) and under all else: no edges, nothing covered. --mc-halo: how far each reaches, from the cover's */
+/* no room for the icons beside the cover (moodchannels.js crowded): a soft warm light washes out from behind its left and
+   right sides instead, like a hidden light strip, the whole height of the cover and reaching a little further at the
+   middle, a gentle rounded ‹ › that leads the eye sideways; it breathes slowly, out and back, as if the cover could be
+   pulled either way. A wash along the side (its ends fading by the mask) and a faint oval over it at mid-height, behind
+   the cover (z-index -1 in .np-left) and under all else: no edges, nothing covered. --mc-halo: how far the middle
+   reaches, from the cover's; --mc-pulses breaths (moodchannels.js sets 3) */
 .mc-swipe-glow { position: absolute; z-index: -1; pointer-events: none; opacity: 0;
-  animation: mc-swipe-hint-show calc(.7s + 1.5s * var(--mc-pulses, 5)) linear both; }
-.mc-swipe-glow > i { position: absolute; top: 12%; bottom: 12%; width: var(--mc-halo, 40px); }
-.mc-swipe-glow > i::before, .mc-swipe-glow > i::after { content: ""; position: absolute; inset: 0; opacity: 0;
+  animation: mc-swipe-hint-show calc(.7s + 3s * var(--mc-pulses, 3)) linear both; }
+.mc-swipe-glow > i { position: absolute; top: 0; bottom: 0; width: var(--mc-halo, 36px); opacity: 0;
   --mc-light: color-mix(in srgb, rgb(var(--np-ink, 255, 255, 255)) 60%, #ffbf73);
-  background: radial-gradient(farthest-side at var(--mc-from) 50%, var(--mc-light) 0%,
-    color-mix(in srgb, var(--mc-light) 60%, transparent) 18%, color-mix(in srgb, var(--mc-light) 30%, transparent) 42%,
-    color-mix(in srgb, var(--mc-light) 11%, transparent) 68%, color-mix(in srgb, var(--mc-light) 3%, transparent) 86%, transparent 100%);
+  background:
+    radial-gradient(100% 36% at var(--mc-from) 50%, color-mix(in srgb, var(--mc-light) 55%, transparent) 0%,
+      color-mix(in srgb, var(--mc-light) 24%, transparent) 45%, color-mix(in srgb, var(--mc-light) 8%, transparent) 75%, transparent 100%),
+    linear-gradient(var(--mc-out), color-mix(in srgb, var(--mc-light) 85%, transparent) 0%, color-mix(in srgb, var(--mc-light) 55%, transparent) 20%,
+      color-mix(in srgb, var(--mc-light) 22%, transparent) 45%, color-mix(in srgb, var(--mc-light) 7%, transparent) 68%, transparent 84%);
+  -webkit-mask: linear-gradient(transparent, #000 18%, #000 82%, transparent); mask: linear-gradient(transparent, #000 18%, #000 82%, transparent);
   transform-origin: var(--mc-from) 50%;
-  animation: mc-swipe-glow 1.5s cubic-bezier(.25, .6, .35, 1) .7s var(--mc-pulses, 5) both; }
-.mc-swipe-glow > i::after { animation-delay: 1.45s; }   /* .7s + half a pulse */
-.mc-swipe-glow > .l { right: calc(100% - 6px); --mc-from: 100%; }
-.mc-swipe-glow > .r { left: calc(100% - 6px); --mc-from: 0%; }
-@keyframes mc-swipe-glow {
-  0% { opacity: 0; scale: .35 .8; } 35% { opacity: .95; } 100% { opacity: 0; scale: 1.1 1; }
-}
+  animation: mc-swipe-glow 3s ease-in-out .7s var(--mc-pulses, 3) both; }
+.mc-swipe-glow > .l { right: calc(100% - 6px); --mc-from: 100%; --mc-out: to left; }
+.mc-swipe-glow > .r { left: calc(100% - 6px); --mc-from: 0%; --mc-out: to right; }
+@keyframes mc-swipe-glow { 0%, 100% { opacity: 0; scale: .8 1; } 50% { opacity: 1; scale: 1 1; } }
 .mc-swipe-glow.hover { animation: mc-swipe-hint-in .25s ease-out both; }
-.mc-swipe-glow.hover > i::before { animation-delay: 0s; animation-iteration-count: infinite; }
-.mc-swipe-glow.hover > i::after { animation-delay: .75s; animation-iteration-count: infinite; }
+.mc-swipe-glow.hover > i { animation-delay: 0s; animation-iteration-count: infinite; }
 @keyframes mc-swipe-hint {
   0% { opacity: 0; translate: 0 0; } 45% { opacity: .38; } 70% { translate: var(--mc-nudge) 0; } 100% { opacity: 0; translate: var(--mc-nudge) 0; }
 }

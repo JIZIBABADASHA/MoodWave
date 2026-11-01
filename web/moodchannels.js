@@ -611,8 +611,8 @@
    * the cover (moodchannels.css mc-swipe-hint): the « » pulse outwards a few times while the 👎 / 👍 stay still, then
    * all go together; a swipe meanwhile takes them away at once. Icons only, not buttons: the swipe is the vote. Placed
    * by the cover's own layout place in .np-left (offsetLeft / offsetTop: not moved by the page sliding in). Never over
-   * anything: with no room for both beside the cover (a narrow window puts the song info right next to it), a soft halo
-   * bleeds out from behind each of the cover's edges instead.
+   * anything: with no room for both beside the cover (a narrow window puts the song info right next to it), a soft light
+   * washes out from behind the cover's sides instead.
    */
   const HINT = { gap: 22, pulses: 5 };
   const CHEVRONS = '<svg class="mc-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6l6 6-6 6M12 6l6 6-6 6"/></svg>';
@@ -659,12 +659,12 @@
       }
       if (!els.some(el => crowded(el, cover))) { MC.hint = els; return; }
     }
-    // no room beside the cover (a narrow window puts the song info right next to it): a soft halo bleeds out from
+    // no room beside the cover (a narrow window puts the song info right next to it): a soft light washes out from
     // behind its left and right edges instead (moodchannels.css mc-swipe-glow), under everything else on the page
     for (const el of els) el.remove();
     const glow = h('div', { class: 'mc-swipe-glow' + (hover ? ' hover' : ''), 'aria-hidden': 'true', html: '<i class="l"></i><i class="r"></i>' });
-    glow.style.setProperty('--mc-pulses', HINT.pulses);
-    glow.style.setProperty('--mc-halo', Math.round(Math.min(90, Math.max(40, cover.offsetWidth * .4))) + 'px');
+    glow.style.setProperty('--mc-pulses', 3);   // slow breaths (moodchannels.css mc-swipe-glow), 3 s each
+    glow.style.setProperty('--mc-halo', Math.round(Math.min(64, Math.max(36, cover.offsetWidth * .28))) + 'px');
     Object.assign(glow.style, { left: cover.offsetLeft + 'px', top: cover.offsetTop + 'px',
       width: cover.offsetWidth + 'px', height: cover.offsetHeight + 'px' });
     done(glow);
