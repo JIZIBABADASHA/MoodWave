@@ -47,7 +47,7 @@ sealed class AnalysisQueue
     Task? _reader;
     string? _reading;                           // the file the reader is on
     long _readyBytes;
-    readonly HashSet<string> _running = new(StringComparer.OrdinalIgnoreCase);
+    readonly Dictionary<string, bool> _running = new(StringComparer.OrdinalIgnoreCase);   // the files the workers have on hand: loudness only?
     readonly HashSet<string> _loudFailed = new(StringComparer.OrdinalIgnoreCase);   // loudness not measured this session (Measure)
     readonly Queue<DateTime> _recent = new();   // completion times, for the rate
     int _threads = 1;
@@ -115,26 +115,39 @@ sealed class AnalysisQueue
         var loud = new List<Job>();
         HashSet<string> loudFailed;
         lock (_lock) loudFailed = new(_loudFailed, StringComparer.OrdinalIgnoreCase);
+        var library = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var counted = new Dictionary<string, (bool Ok, bool Loud)>(StringComparer.OrdinalIgnoreCase);   // what this pass counted done
         foreach (var t in tracks.OrderBy(t => t.Path, StringComparer.OrdinalIgnoreCase))
         {
             if (string.IsNullOrEmpty(t.Path) || !Path.IsPathFullyQualified(t.Path)) continue;
+            library.Add(t.Path);
             total++;
             var e = _store.Get(t.Path);
             if (AnalysisStore.Current(e, t.Size, t.Mtime))
             {
-                if (!e!.Ok) { failed++; continue; }
+                if (!e!.Ok) { failed++; counted[t.Path] = (false, false); continue; }
                 ok++;
                 // one whose measuring failed this session counts as tried (again at the next start)
-                if (AnalysisStore.NeedsLoudness(e) && !loudFailed.Contains(t.Path)) loud.Add(new Job(t.Path, t.Size, t.Mtime, true)); else loudDone++;
+                bool measured = !AnalysisStore.NeedsLoudness(e) || loudFailed.Contains(t.Path);
+                if (measured) loudDone++; else loud.Add(new Job(t.Path, t.Size, t.Mtime, true));
+                counted[t.Path] = (true, measured);
                 continue;
             }
             if (t.Duration > MaxMinutes * 60)
             {
                 _store.Put(t.Path, new Entry { Size = t.Size, Mtime = t.Mtime, Dsp = Dsp.DspFeatures.Version, Error = $"longer than {MaxMinutes:0} minutes", At = DateTime.UtcNow });
                 failed++;
+                counted[t.Path] = (false, false);
                 continue;
             }
             todo.Add(new Job(t.Path, t.Size, t.Mtime, false));
+        }
+        // a failed file deleted (or moved away) is not kept: its entry would stay in the database for good. Not with no
+        // library at all (the host's list not there yet at the start)
+        if (library.Count > 0)
+        {
+            try { int gone = _store.ForgetFailedGone(library); if (gone > 0) _log($"analysis: {gone} failed files no longer in the library forgotten"); }
+            catch (Exception ex) { _log("analysis: failed files no longer in the library not forgotten: " + ex.Message); }
         }
         todo.AddRange(loud);                                     // after every file still to analyse
         lock (_lock)
@@ -142,9 +155,23 @@ sealed class AnalysisQueue
             _pending.Clear();
             var ahead = new HashSet<string>(_ready.Concat(_urgent).Concat(_readyUrgent).Select(r => r.Path), StringComparer.OrdinalIgnoreCase);
             if (_reading != null) ahead.Add(_reading);
-            foreach (var x in todo) if (!_running.Contains(x.Path) && !ahead.Contains(x.Path)) _pending.Enqueue(x);
+            foreach (var x in todo) if (!_running.ContainsKey(x.Path) && !ahead.Contains(x.Path)) _pending.Enqueue(x);
+            // a file a worker has on hand counts when the worker is done with it, and only then: the worker stores the
+            // analysis (or the loudness) before it counts it, and this pass may have read it from the store in between
+            // (it measures the loudness meanwhile: seconds). Counted here as well, it showed one more analysed than all
+            int loudTodo = todo.Count;                           // the files to analyse are measured too
+            var inTodo = new HashSet<string>(todo.Select(x => x.Path), StringComparer.OrdinalIgnoreCase);
+            foreach (var (path, loudOnly) in _running)
+            {
+                if (counted.TryGetValue(path, out var c))
+                {
+                    if (!loudOnly) { if (c.Ok) ok--; else failed--; }
+                    if (c.Loud) loudDone--;
+                }
+                if (!inTodo.Contains(path)) loudTodo++;          // the worker takes it off the files still to measure too
+            }
             (_total, _ok, _failed, _loudDone) = (total, ok, failed, loudDone);
-            _loudTodo = todo.Count;                              // the files to analyse are measured too
+            _loudTodo = loudTodo;
         }
         Wake();
         Changed?.Invoke();
@@ -271,7 +298,7 @@ sealed class AnalysisQueue
                     else if (_enabled && _readyUrgent.Count > 0)
                     {
                         job = _readyUrgent.Dequeue();
-                        _running.Add(job.Path);
+                        _running[job.Path] = job.LoudOnly;
                         if (job.LoudOnly) _runningLoud++;
                         got = true;
                     }
@@ -279,7 +306,7 @@ sealed class AnalysisQueue
                     {
                         job = _ready.Dequeue();
                         _readyBytes -= job.Size;
-                        _running.Add(job.Path);
+                        _running[job.Path] = job.LoudOnly;
                         if (job.LoudOnly) _runningLoud++;
                         got = true;
                     }
