@@ -439,9 +439,10 @@ html:root.mc-radio #np-cover.mc-dragging { cursor: grabbing; }
   box-shadow: calc(var(--mc-blur) * -.85) 0 var(--mc-blur) calc(var(--mc-blur) * -1.05) var(--mc-light),
     calc(var(--mc-blur) * .85) 0 var(--mc-blur) calc(var(--mc-blur) * -1.05) var(--mc-light); }
 .mc-swipe-glow.on-light > i { --mc-light: var(--teal, #39c5bb); }   /* a light page: its accent (moodchannels.js) */
-/* the vinyl theme: a warm lamp-white, brighter than its sage page so it reads as light on it (its burnt orange, or any
-   colour darker than the page, reads as a stain) */
-:root[data-theme="vinyl"] .mc-swipe-glow > i { --mc-light: color-mix(in srgb, #fffaf0 82%, var(--amber, #d9a521)); }
+/* the vinyl theme: a warm golden lamp-light from its mustard, lifted towards cream so it glows on the sage page rather
+   than staining it as its burnt-orange accent did, and a little stronger */
+:root[data-theme="vinyl"] .mc-swipe-glow > i { --mc-light: color-mix(in srgb, var(--amber, #d9a521) 68%, #fff4d0); --mc-blur: calc(var(--mc-halo, 40px) * .6); }
+:root[data-theme="vinyl"] .mc-swipe-glow > i > b { filter: saturate(1.15); }
 @keyframes mc-swipe-glow { 0%, 100% { opacity: 0; scale: .97 1; } 50% { opacity: 1; scale: 1.03 1; } }
 .mc-swipe-glow.hover { animation: mc-swipe-hint-in .25s ease-out both; }
 .mc-swipe-glow.hover > i { animation-delay: 0s; animation-iteration-count: infinite; }
