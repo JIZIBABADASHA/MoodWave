@@ -426,18 +426,18 @@ html:root.mc-radio #np-cover.mc-dragging { cursor: grabbing; }
    how far it reaches, from moodchannels.js; --mc-pulses breaths (it sets 3) */
 .mc-swipe-glow { position: absolute; z-index: -1; pointer-events: none; opacity: 0;
   animation: mc-swipe-hint-show calc(.7s + 3s * var(--mc-pulses, 3)) linear both; }
-.mc-swipe-glow > i { position: absolute; inset: calc(var(--mc-halo, 40px) * -1); opacity: 0;
+.mc-swipe-glow > i { position: absolute; --mc-pad: calc(var(--mc-halo, 40px) * 1.8); inset: calc(var(--mc-pad) * -1); opacity: 0;
   --mc-light: color-mix(in srgb, rgb(var(--np-ink, 255, 255, 255)) 60%, #ffbf73);
   --mc-blur: calc(var(--mc-halo, 40px) * .5);
   background:   /* the faint extra reach at mid-height, either side */
-    radial-gradient(var(--mc-halo, 40px) 26% at var(--mc-halo, 40px) 50%, color-mix(in srgb, var(--mc-light) 26%, transparent),
-      color-mix(in srgb, var(--mc-light) 7%, transparent) 60%, transparent),
-    radial-gradient(var(--mc-halo, 40px) 26% at calc(100% - var(--mc-halo, 40px)) 50%, color-mix(in srgb, var(--mc-light) 26%, transparent),
-      color-mix(in srgb, var(--mc-light) 7%, transparent) 60%, transparent);
+    radial-gradient(calc(var(--mc-halo, 40px) * 1.7) min(var(--mc-halo, 40px) * 1.3, var(--mc-h, 200px) * .4) at var(--mc-pad) 50%, color-mix(in srgb, var(--mc-light) 55%, transparent),
+      color-mix(in srgb, var(--mc-light) 24%, transparent) 38%, color-mix(in srgb, var(--mc-light) 7%, transparent) 70%, transparent),
+    radial-gradient(calc(var(--mc-halo, 40px) * 1.7) min(var(--mc-halo, 40px) * 1.3, var(--mc-h, 200px) * .4) at calc(100% - var(--mc-pad)) 50%, color-mix(in srgb, var(--mc-light) 55%, transparent),
+      color-mix(in srgb, var(--mc-light) 24%, transparent) 38%, color-mix(in srgb, var(--mc-light) 7%, transparent) 70%, transparent);
   animation: mc-swipe-glow 3s ease-in-out .7s var(--mc-pulses, 3) both; }
-.mc-swipe-glow > i > b { position: absolute; inset: calc(var(--mc-halo, 40px) - var(--mc-ring, 0px)); border-radius: calc(var(--mc-radius, 14px) + var(--mc-ring, 0px));
-  box-shadow: calc(var(--mc-blur) * -1.15) 0 var(--mc-blur) calc(var(--mc-blur) * -1.05) var(--mc-light),
-    calc(var(--mc-blur) * 1.15) 0 var(--mc-blur) calc(var(--mc-blur) * -1.05) var(--mc-light); }
+.mc-swipe-glow > i > b { position: absolute; inset: calc(var(--mc-pad) - var(--mc-ring, 0px)); border-radius: calc(var(--mc-radius, 14px) + var(--mc-ring, 0px));
+  box-shadow: calc(var(--mc-blur) * -.85) 0 var(--mc-blur) calc(var(--mc-blur) * -1.05) var(--mc-light),
+    calc(var(--mc-blur) * .85) 0 var(--mc-blur) calc(var(--mc-blur) * -1.05) var(--mc-light); }
 .mc-swipe-glow.on-light > i { --mc-light: var(--teal, #39c5bb); }   /* a light page: its accent (moodchannels.js) */
 /* the vinyl theme: a warm lamp-white, brighter than its sage page so it reads as light on it (its burnt orange, or any
    colour darker than the page, reads as a stain) */
