@@ -611,11 +611,12 @@
    * the cover (moodchannels.css mc-swipe-hint): the « » pulse outwards a few times while the 👎 / 👍 stay still, then
    * all go together; a swipe meanwhile takes them away at once. Icons only, not buttons: the swipe is the vote. Placed
    * by the cover's own layout place in .np-left (offsetLeft / offsetTop: not moved by the page sliding in). Never over
-   * anything: with no room for both beside the cover (a narrow window puts the song info right next to it), the cover's
-   * edges glow instead.
+   * anything: with no room for both beside the cover (a narrow window puts the song info right next to it), a glowing ‹ / ›
+   * slides out from behind each of the cover's edges instead.
    */
   const HINT = { gap: 22, pulses: 5 };
   const CHEVRONS = '<svg class="mc-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6l6 6-6 6M12 6l6 6-6 6"/></svg>';
+  const ARROW = side => `<svg class="${side}" viewBox="0 0 24 24"><path d="M15 5 8 12l7 7"/></svg>`;
   /** The chevrons' size, from the cover's. */
   const hintSize = cover => Math.round(Math.min(28, Math.max(18, cover.offsetWidth * .05)));
 
@@ -659,11 +660,12 @@
       }
       if (!els.some(el => crowded(el, cover))) { MC.hint = els; return; }
     }
-    // no room beside the cover (a narrow window puts the song info right next to it): its left and right edges glow
-    // and pulse outwards instead (moodchannels.css mc-swipe-glow), from behind the cover so they cover nothing
+    // no room beside the cover (a narrow window puts the song info right next to it): a glowing ‹ and › slide out
+    // from behind its edges instead (moodchannels.css mc-swipe-glow), so they cover nothing
     for (const el of els) el.remove();
-    const glow = h('div', { class: 'mc-swipe-glow' + (hover ? ' hover' : ''), 'aria-hidden': 'true' });
+    const glow = h('div', { class: 'mc-swipe-glow' + (hover ? ' hover' : ''), 'aria-hidden': 'true', html: ARROW('l') + ARROW('r') });
     glow.style.setProperty('--mc-pulses', HINT.pulses);
+    glow.style.setProperty('--mc-arrow', Math.round(Math.min(26, Math.max(14, cover.offsetWidth * .18))) + 'px');
     Object.assign(glow.style, { left: cover.offsetLeft + 'px', top: cover.offsetTop + 'px',
       width: cover.offsetWidth + 'px', height: cover.offsetHeight + 'px' });
     done(glow);
