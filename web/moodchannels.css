@@ -416,27 +416,31 @@ html:root.mc-radio #np-cover.mc-dragging { cursor: grabbing; }
 .mc-swipe-hint.l { transform: translate(-100%, -50%); flex-direction: row-reverse; --mc-nudge: -7px; }
 .mc-swipe-hint.l .mc-chev { transform: scaleX(-1); }
 .mc-swipe-hint.l .i { transform: rotate(180deg); }
-/* no room for the icons beside the cover (moodchannels.js crowded): a soft warm light washes out from behind its left and
-   right sides instead, like a hidden light strip, the whole height of the cover and reaching a little further at the
-   middle, a gentle rounded ‹ › that leads the eye sideways; it breathes slowly, out and back, as if the cover could be
-   pulled either way. A wash along the side (its ends fading by the mask) and a faint oval over it at mid-height, behind
-   the cover (z-index -1 in .np-left) and under all else: no edges, nothing covered. --mc-halo: how far the middle
-   reaches, from the cover's; --mc-pulses breaths (moodchannels.js sets 3) */
+/* no room for the icons beside the cover (moodchannels.js crowded): a soft warm light glows out from behind its left and
+   right sides instead, like a hidden light strip, hugging the cover's own outline (rounded square, the vinyl theme's
+   disc …: --mc-radius, the cover's border-radius) and fading away round its top and bottom, with a faint extra reach at
+   mid-height that leads the eye sideways; it breathes slowly, widening a little, as if the cover could be pulled either
+   way. The light is the blurred shadow of a copy of the cover's shape (b), masked to the sides, behind the cover
+   (z-index -1 in .np-left) and under all else: no edges, nothing covered. --mc-halo: how far it reaches, --mc-w: the
+   cover's width, both from moodchannels.js; --mc-pulses breaths (it sets 3) */
 .mc-swipe-glow { position: absolute; z-index: -1; pointer-events: none; opacity: 0;
   animation: mc-swipe-hint-show calc(.7s + 3s * var(--mc-pulses, 3)) linear both; }
-.mc-swipe-glow > i { position: absolute; top: 0; bottom: 0; width: var(--mc-halo, 36px); opacity: 0;
+.mc-swipe-glow > i { position: absolute; inset: calc(var(--mc-halo, 40px) * -1); opacity: 0;
   --mc-light: color-mix(in srgb, rgb(var(--np-ink, 255, 255, 255)) 60%, #ffbf73);
-  background:
-    radial-gradient(100% 36% at var(--mc-from) 50%, color-mix(in srgb, var(--mc-light) 55%, transparent) 0%,
-      color-mix(in srgb, var(--mc-light) 24%, transparent) 45%, color-mix(in srgb, var(--mc-light) 8%, transparent) 75%, transparent 100%),
-    linear-gradient(var(--mc-out), color-mix(in srgb, var(--mc-light) 85%, transparent) 0%, color-mix(in srgb, var(--mc-light) 55%, transparent) 20%,
-      color-mix(in srgb, var(--mc-light) 22%, transparent) 45%, color-mix(in srgb, var(--mc-light) 7%, transparent) 68%, transparent 84%);
-  -webkit-mask: linear-gradient(transparent, #000 18%, #000 82%, transparent); mask: linear-gradient(transparent, #000 18%, #000 82%, transparent);
-  transform-origin: var(--mc-from) 50%;
+  --mc-in: calc(var(--mc-halo, 40px) + var(--mc-w, 200px) * .04); --mc-mid: calc(var(--mc-halo, 40px) + var(--mc-w, 200px) * .3);
+  background:   /* the faint extra reach at mid-height, either side */
+    radial-gradient(var(--mc-halo, 40px) 30% at var(--mc-halo, 40px) 50%, color-mix(in srgb, var(--mc-light) 30%, transparent),
+      color-mix(in srgb, var(--mc-light) 8%, transparent) 60%, transparent),
+    radial-gradient(var(--mc-halo, 40px) 30% at calc(100% - var(--mc-halo, 40px)) 50%, color-mix(in srgb, var(--mc-light) 30%, transparent),
+      color-mix(in srgb, var(--mc-light) 8%, transparent) 60%, transparent);
+  -webkit-mask: linear-gradient(to right, #000 var(--mc-in), transparent var(--mc-mid), transparent calc(100% - var(--mc-mid)), #000 calc(100% - var(--mc-in)));
+  mask: linear-gradient(to right, #000 var(--mc-in), transparent var(--mc-mid), transparent calc(100% - var(--mc-mid)), #000 calc(100% - var(--mc-in)));
   animation: mc-swipe-glow 3s ease-in-out .7s var(--mc-pulses, 3) both; }
-.mc-swipe-glow > .l { right: calc(100% - 6px); --mc-from: 100%; --mc-out: to left; }
-.mc-swipe-glow > .r { left: calc(100% - 6px); --mc-from: 0%; --mc-out: to right; }
-@keyframes mc-swipe-glow { 0%, 100% { opacity: 0; scale: .8 1; } 50% { opacity: 1; scale: 1 1; } }
+.mc-swipe-glow > i > b { position: absolute; inset: calc(var(--mc-halo, 40px) - var(--mc-ring, 0px)); border-radius: calc(var(--mc-radius, 14px) + var(--mc-ring, 0px));
+  box-shadow: 0 0 calc(var(--mc-halo, 40px) * .55) calc(var(--mc-halo, 40px) * .06) color-mix(in srgb, var(--mc-light) 85%, transparent); }
+.mc-swipe-glow.on-light > i { --mc-light: var(--teal, #39c5bb); }   /* a light page: its accent, stronger (moodchannels.js) */
+.mc-swipe-glow.on-light > i > b { box-shadow: 0 0 calc(var(--mc-halo, 40px) * .6) calc(var(--mc-halo, 40px) * .12) var(--mc-light); }
+@keyframes mc-swipe-glow { 0%, 100% { opacity: 0; scale: .97 1; } 50% { opacity: 1; scale: 1.03 1; } }
 .mc-swipe-glow.hover { animation: mc-swipe-hint-in .25s ease-out both; }
 .mc-swipe-glow.hover > i { animation-delay: 0s; animation-iteration-count: infinite; }
 @keyframes mc-swipe-hint {

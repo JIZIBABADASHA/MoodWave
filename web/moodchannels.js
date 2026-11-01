@@ -612,7 +612,7 @@
    * all go together; a swipe meanwhile takes them away at once. Icons only, not buttons: the swipe is the vote. Placed
    * by the cover's own layout place in .np-left (offsetLeft / offsetTop: not moved by the page sliding in). Never over
    * anything: with no room for both beside the cover (a narrow window puts the song info right next to it), a soft light
-   * washes out from behind the cover's sides instead.
+   * glows out from behind the cover's sides instead, in its own shape.
    */
   const HINT = { gap: 22, pulses: 5 };
   const CHEVRONS = '<svg class="mc-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6l6 6-6 6M12 6l6 6-6 6"/></svg>';
@@ -659,12 +659,24 @@
       }
       if (!els.some(el => crowded(el, cover))) { MC.hint = els; return; }
     }
-    // no room beside the cover (a narrow window puts the song info right next to it): a soft light washes out from
-    // behind its left and right edges instead (moodchannels.css mc-swipe-glow), under everything else on the page
+    // no room beside the cover (a narrow window puts the song info right next to it): a soft light glows out from
+    // behind its left and right sides instead, in the cover's own shape (moodchannels.css mc-swipe-glow), under
+    // everything else on the page
     for (const el of els) el.remove();
-    const glow = h('div', { class: 'mc-swipe-glow' + (hover ? ' hover' : ''), 'aria-hidden': 'true', html: '<i class="l"></i><i class="r"></i>' });
+    const glow = h('div', { class: 'mc-swipe-glow' + (hover ? ' hover' : ''), 'aria-hidden': 'true', html: '<i><b></b></i>' });
     glow.style.setProperty('--mc-pulses', 3);   // slow breaths (moodchannels.css mc-swipe-glow), 3 s each
     glow.style.setProperty('--mc-halo', Math.round(Math.min(64, Math.max(36, cover.offsetWidth * .28))) + 'px');
+    glow.style.setProperty('--mc-w', cover.offsetWidth + 'px');
+    const cs = getComputedStyle(cover);
+    glow.style.setProperty('--mc-radius', cs.borderRadius);
+    // a ring drawn round the cover by its box-shadow (the vinyl theme's record edge): the light starts outside it
+    const ring = Math.max(0, ...[...cs.boxShadow.matchAll(/(-?[\d.]+)px (-?[\d.]+)px ([\d.]+)px ([\d.]+)px/g)]
+      .filter(m => +m[1] === 0 && +m[2] === 0 && +m[3] === 0).map(m => +m[4]));
+    glow.style.setProperty('--mc-ring', ring + 'px');
+    // warm light on a dark page; on a light one (dark ink) light would vanish and the ink would read as a shadow: the
+    // theme's accent instead
+    const ink = cs.getPropertyValue('--np-ink').split(',').map(Number);
+    if (ink.length === 3 && .2126 * ink[0] + .7152 * ink[1] + .0722 * ink[2] < 128) glow.classList.add('on-light');
     Object.assign(glow.style, { left: cover.offsetLeft + 'px', top: cover.offsetTop + 'px',
       width: cover.offsetWidth + 'px', height: cover.offsetHeight + 'px' });
     done(glow);
