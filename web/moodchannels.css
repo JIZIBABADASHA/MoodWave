@@ -416,16 +416,22 @@ html:root.mc-radio #np-cover.mc-dragging { cursor: grabbing; }
 .mc-swipe-hint.l { transform: translate(-100%, -50%); flex-direction: row-reverse; --mc-nudge: -7px; }
 .mc-swipe-hint.l .mc-chev { transform: scaleX(-1); }
 .mc-swipe-hint.l .i { transform: rotate(180deg); }
-/* no room beside the cover (moodchannels.js crowded): on the cover's own edge, white on a dark pill so it reads as clearly
-   as the hint beside the cover does, on any art (faint white icons alone vanish on a light cover) */
-.mc-swipe-hint.in { color: #fff; --mc-peak: .95; padding: calc(var(--mc-hint, 24px) * .2) calc(var(--mc-hint, 24px) * .35);
-  border-radius: 999px; background: rgba(0,0,0,.5); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-  box-shadow: 0 1px 6px rgba(0,0,0,.35); }
-.mc-swipe-hint.in .i { opacity: 1; }
-.mc-swipe-hint.r.in { transform: translate(-100%, -50%); }
-.mc-swipe-hint.l.in { transform: translateY(-50%); }
+/* no room for the icons beside the cover (moodchannels.js crowded): its left and right edges glow in the page's ink
+   instead, pulsing outwards as the « » do, from behind the cover (z-index -1 in .np-left) so only the light shows */
+.mc-swipe-glow { position: absolute; z-index: -1; pointer-events: none; opacity: 0;
+  animation: mc-swipe-hint-show calc(.7s + 1.5s * var(--mc-pulses, 5)) linear both; }
+.mc-swipe-glow::before, .mc-swipe-glow::after { content: ""; position: absolute; top: 10%; bottom: 10%; width: 10px;
+  border-radius: 999px; background: rgb(var(--np-ink, 255, 255, 255)); filter: blur(7px); opacity: 0;
+  animation: mc-swipe-glow 1.5s ease-in-out .7s var(--mc-pulses, 5) both; }
+.mc-swipe-glow::before { left: 0; --mc-nudge: -5px; }
+.mc-swipe-glow::after { right: 0; --mc-nudge: 5px; }
+@keyframes mc-swipe-glow {
+  0% { opacity: 0; translate: 0 0; } 45% { opacity: .9; } 70% { translate: var(--mc-nudge) 0; } 100% { opacity: 0; translate: var(--mc-nudge) 0; }
+}
+.mc-swipe-glow.hover { animation: mc-swipe-hint-in .25s ease-out both; }
+.mc-swipe-glow.hover::before, .mc-swipe-glow.hover::after { animation-delay: 0s; animation-iteration-count: infinite; }
 @keyframes mc-swipe-hint {
-  0% { opacity: 0; translate: 0 0; } 45% { opacity: var(--mc-peak, .38); } 70% { translate: var(--mc-nudge) 0; } 100% { opacity: 0; translate: var(--mc-nudge) 0; }
+  0% { opacity: 0; translate: 0 0; } 45% { opacity: .38; } 70% { translate: var(--mc-nudge) 0; } 100% { opacity: 0; translate: var(--mc-nudge) 0; }
 }
 /* the whole hint: in as the pulses start, out as they end (the 👎 / 👍 with them) */
 @keyframes mc-swipe-hint-show { 0%, 8% { opacity: 0; } 13%, 94% { opacity: 1; } 100% { opacity: 0; } }
@@ -433,7 +439,7 @@ html:root.mc-radio #np-cover.mc-dragging { cursor: grabbing; }
 .mc-swipe-hint.hover { animation: mc-swipe-hint-in .25s ease-out both; }
 .mc-swipe-hint.hover .mc-chev { animation-delay: 0s; animation-iteration-count: infinite; }
 @keyframes mc-swipe-hint-in { from { opacity: 0; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .mc-swipe-hint { display: none; } }
+@media (prefers-reduced-motion: reduce) { .mc-swipe-hint, .mc-swipe-glow { display: none; } }
 /* the bar's radio label opens the now-playing page: the whole label answers the pointer (the 👍 / 👎 keep their own) */
 .mc-radio-band.mc-radio-open { cursor: pointer; outline: none; border-radius: 14px; }
 .mc-radio-open:focus-visible { box-shadow: inset 0 0 0 2px currentColor; }
