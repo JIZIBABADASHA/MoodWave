@@ -666,7 +666,6 @@
     const glow = h('div', { class: 'mc-swipe-glow' + (hover ? ' hover' : ''), 'aria-hidden': 'true', html: '<i><b></b></i>' });
     glow.style.setProperty('--mc-pulses', 3);   // slow breaths (moodchannels.css mc-swipe-glow), 3 s each
     glow.style.setProperty('--mc-halo', Math.round(Math.min(64, Math.max(36, cover.offsetWidth * .28))) + 'px');
-    glow.style.setProperty('--mc-w', cover.offsetWidth + 'px');
     const cs = getComputedStyle(cover);
     glow.style.setProperty('--mc-radius', cs.borderRadius);
     // a ring drawn round the cover by its box-shadow (the vinyl theme's record edge): the light starts outside it
@@ -682,6 +681,13 @@
     done(glow);
     left.append(glow);
     MC.hint = [glow];
+    // the cover's own scale, as it changes (the vinyl theme shrinks the record while paused): the light stays right
+    // at its edge instead of a gap opening between them
+    (function follow() {
+      if (!glow.isConnected) return;
+      glow.style.scale = cover.getBoundingClientRect().width / cover.offsetWidth || 1;
+      requestAnimationFrame(follow);
+    })();
   }
 
   /**
