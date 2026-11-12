@@ -741,7 +741,7 @@
 
   /**
    * While the cover is dragged, flipped or flung, the page's content goes over the extensions' layer (#np-ext: the radio
-   * label on the left), so the cover passes over the label's words, not under them (moodchannels.css mc-swiping).
+   * label on the left) and the cover over everything else on the page (moodchannels.css mc-swiping).
    */
   function lift(on) {
     document.getElementById('np')?.classList.toggle('mc-swiping', on);
