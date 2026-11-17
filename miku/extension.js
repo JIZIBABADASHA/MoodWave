@@ -11,7 +11,7 @@ const path = require('path');
 const readline = require('readline');
 const { spawn } = require('child_process');
 
-const SETTINGS = ['enabled', 'threads', 'builtin', 'ai', 'aiSegments', 'aiGpu', 'aiThreads'];   // the module's settings the helper reads (MoodService)
+const SETTINGS = ['enabled', 'threads', 'ai', 'aiSegments', 'aiGpu', 'aiThreads'];   // the module's settings the helper reads (MoodService)
 const UPCOMING = 4;                                     // the track playing and the next three go first
 
 let host = null;

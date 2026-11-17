@@ -6,7 +6,8 @@ namespace MoodChannels.Service;
 /// <summary>
 /// MoodWave: analyses the library in the background (DSP descriptors, models\basic\) and sorts it into five
 /// time-of-day and eight mood channels, adjusted to the listener's own 👍 / 👎 (Personalization). Settings:
-/// "enabled" (analysis and the page, default on), "threads" (default 1), "builtin" (the built-in tuning, default on);
+/// "enabled" (analysis and the page, default on), "threads" (default 1); the built-in tuning (models\basic\tuning.json)
+/// is always used, not a setting (an old "builtin" off is ignored: the page no longer has the switch to turn it on);
 /// the advanced AI (CLAP embeddings, ClapQueue): "ai" (default off), "aiSegments" (6 / 9 / 12; unset: 12 with a GPU,
 /// 6 on the processor), "aiGpu" (default on), "aiThreads" (on the processor; 0, the default: half the cores),
 /// "readLimit" (the analysis' disk speed while a track plays, MB a second: 4 / 8 / 16, 0 none, the default).
@@ -118,7 +119,7 @@ public sealed class MoodService
         if (seeded.Length > 0) host.Log(seeded);
         var personal = new Personalization(_store);
         host.Log(personal.LoadBuiltIn(Path.Combine(host.ModuleDir, "models", "basic", "tuning.json"), _store.FeatureNames));
-        personal.UseBuiltIn = Setting("builtin", true);
+        personal.UseBuiltIn = true;   // always: MoodWave's own tuning (the listener's votes still decide their tracks)
         personal.Train();
         // the queues start and the player's events are taken under _life: Stop either comes first and nothing starts, or
         // comes after and finds everything to stop
@@ -213,8 +214,8 @@ public sealed class MoodService
         return o;
     }
 
-    /// <summary>The setting of the built-in tuning, for the settings page.</summary>
-    object Tuning() => new { builtin = Setting("builtin", true), channels = _personal?.BuiltInChannels ?? Array.Empty<string>() };
+    /// <summary>The built-in tuning: always on, and the channels it tunes.</summary>
+    object Tuning() => new { builtin = true, channels = _personal?.BuiltInChannels ?? Array.Empty<string>() };
 
     int[] Classify(TrackFeatures f)
     {
@@ -730,11 +731,6 @@ public sealed class MoodService
             }
             case "set":
             {
-                if (Bool("builtin") is bool builtIn)
-                {
-                    _host.SetSetting("builtin", builtIn);
-                    if (_personal != null) Task.Run(() => _personal.UseBuiltIn = builtIn);
-                }
                 bool enabled = Bool("enabled") ?? Setting("enabled", true);
                 int threads = Math.Clamp(Int("threads", Setting("threads", 1)), 1, Environment.ProcessorCount);
                 _host.SetSetting("enabled", enabled);

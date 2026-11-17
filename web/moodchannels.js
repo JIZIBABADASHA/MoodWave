@@ -5,7 +5,138 @@
   const MC = { api: null, ui: null, status: null, block: null, aiBlock: null, manageBox: null, methodBox: null, basicBody: null, aiBody: null, aiField: null, aiSwitch: null, failBox: null, failOpen: false, manageOpen: false, counts: null };
   const ART = new URL('art/', document.currentScript.src).href;   // web/art/<index>.svg (tools/gen_art.py)
 
-  const fmtEta = m => m == null ? '' : m < 60 ? `約 ${m} 分鐘` : `約 ${Math.floor(m / 60)} 小時 ${m % 60} 分鐘`;
+  /* The module in MIKU's interface language (I18N.lang, i18n.js), the way MIKU's own T works: keyed by the Traditional
+     Chinese text, a template's ${} values as {0} {1} …. MoodWave carries its own words (简体中文, English, 日本語), so a
+     new wording here needs no change in MIKU. Text with no entry is shown as written. */
+  const WORDS = {
+    "約 {0} 分鐘": ["约 {0} 分钟", "about {0} min", "約 {0} 分"],
+    "約 {0} 小時 {1} 分鐘": ["约 {0} 小时 {1} 分钟", "about {0} h {1} min", "約 {0} 時間 {1} 分"],
+    "找不到 AI 分析程式（moodwave-clap），請重新安裝 MoodWave": ["找不到 AI 分析程序（moodwave-clap），请重新安装 MoodWave", "The AI analysis program (moodwave-clap) wasn't found. Please reinstall MoodWave.", "AI 解析プログラム（moodwave-clap）が見つかりません。MoodWave を再インストールしてください。"],
+    "模型檔案不完整或已損毀，請重試。": ["模型文件不完整或已损坏，请重试。", "The model file is incomplete or damaged. Please try again.", "モデルファイルが不完全か破損しています。もう一度お試しください。"],
+    "目前沒有可用的模型下載位置。": ["目前没有可用的模型下载地址。", "No download location for the model is available yet.", "モデルのダウンロード先がまだありません。"],
+    "AI 分析程式多次意外結束，已停用。請重新開啟進階 AI。": ["AI 分析程序多次意外退出，已停用。请重新开启高级 AI。", "The AI analysis program kept quitting unexpectedly and was stopped. Turn Advanced AI on again.", "AI 解析プログラムが繰り返し異常終了したため停止しました。高度な AI をもう一度オンにしてください。"],
+    "繼續": ["继续", "Resume", "再開"],
+    "暫停": ["暂停", "Pause", "一時停止"],
+    "分析引擎無法啟動：{0}": ["分析引擎无法启动：{0}", "The analysis engine couldn't start: {0}", "解析エンジンを起動できません：{0}"],
+    "正在準備分析引擎…": ["正在准备分析引擎…", "Preparing the analysis engine…", "解析エンジンを準備中…"],
+    "分析進度": ["分析进度", "Analysis", "解析の進捗"],
+    "· {0} 首無法分析": ["· {0} 首无法分析", "· {0} couldn't be analysed", "· {0} 曲を解析できません"],
+    "已暫停": ["已暂停", "Paused", "一時停止中"],
+    "分析完成": ["分析完成", "Analysis complete", "解析完了"],
+    "分析中": ["分析中", "Analysing", "解析中"],
+    " · 每小時約 {0} 首": [" · 每小时约 {0} 首", " · about {0} an hour", " · 1 時間に約 {0} 曲"],
+    " · 剩餘{0}": [" · 剩余{0}", " · {0} left", " · 残り{0}"],
+    "模型": ["模型", "Model", "モデル"],
+    "複製中 {0} / {1} MB": ["复制中 {0} / {1} MB", "Copying {0} / {1} MB", "コピー中 {0} / {1} MB"],
+    "下載中 {0} / {1} MB": ["下载中 {0} / {1} MB", "Downloading {0} / {1} MB", "ダウンロード中 {0} / {1} MB"],
+    "· 取消": ["· 取消", "· Cancel", "· キャンセル"],
+    "下載失敗": ["下载失败", "Download failed", "ダウンロード失敗"],
+    "等待下載": ["等待下载", "Waiting to download", "ダウンロード待ち"],
+    "· 重試": ["· 重试", "· Retry", "· 再試行"],
+    "使用 {0}": ["使用 {0}", "on the {0}", "{0} を使用"],
+    "{0} 段": ["{0} 段", "{0} segments", "{0} 区間"],
+    "基本分析完成後開始": ["基本分析完成后开始", "Starts after the basic analysis", "基本解析の完了後に開始"],
+    "管理分析資料": ["管理分析数据", "Manage analysis data", "解析データの管理"],
+    "隱藏無法分析的曲目": ["隐藏无法分析的曲目", "Hide tracks that couldn't be analysed", "解析できなかった曲を隠す"],
+    "顯示無法分析的曲目（{0}）": ["显示无法分析的曲目（{0}）", "Show tracks that couldn't be analysed ({0})", "解析できなかった曲を表示（{0}）"],
+    "重新分析失敗的曲目": ["重新分析失败的曲目", "Analyse failed tracks again", "失敗した曲を再解析"],
+    "要清除基本分析結果，重新分析整個曲庫嗎？你的投票會保留。": ["要清除基本分析结果，重新分析整个曲库吗？你的投票会保留。", "Clear the basic analysis and analyse the whole library again? Your votes are kept.", "基本解析の結果を消去して、ライブラリ全体を再解析しますか？投票は残ります。"],
+    "全部重新分析": ["全部重新分析", "Analyse everything again", "すべて再解析"],
+    "模型約 {0} MB、分析結果約 {1} MB": ["模型约 {0} MB、分析结果约 {1} MB", "Model about {0} MB, results about {1} MB", "モデル約 {0} MB、解析結果約 {1} MB"],
+    "要刪除 AI 模型和分析結果嗎？進階 AI 會關閉，下次開啟需要重新下載和分析。": ["要删除 AI 模型和分析结果吗？高级 AI 会关闭，下次开启需要重新下载和分析。", "Delete the AI model and its results? Advanced AI is turned off; turning it on again downloads and analyses everything again.", "AI モデルと解析結果を削除しますか？高度な AI はオフになり、次にオンにすると再ダウンロードと再解析が必要です。"],
+    "刪除 AI 資料": ["删除 AI 数据", "Delete AI data", "AI データを削除"],
+    "使用 GPU": ["使用 GPU", "Use GPU", "GPU を使用"],
+    "用顯示卡分析，比 CPU 快很多。不支援時自動改用 CPU。": ["用显卡分析，比 CPU 快很多。不支持时自动改用 CPU。", "Analyses on the graphics card, much faster than the CPU. Falls back to the CPU if it isn't supported.", "グラフィックカードで解析し、CPU よりずっと高速です。非対応の場合は自動的に CPU を使います。"],
+    "CPU 執行緒": ["CPU 线程", "CPU threads", "CPU スレッド"],
+    "越多越快，CPU 負擔也越重。這台電腦有 {0} 個。": ["越多越快，CPU 负担也越重。这台电脑有 {0} 个。", "More is faster but uses more CPU. This computer has {0}.", "多いほど速くなりますが、CPU の負荷も増えます。このコンピューターには {0} 個あります。"],
+    "自動（{0} 條）": ["自动（{0} 条）", "Auto ({0})", "自動（{0}）"],
+    "{0} 條": ["{0} 条", "{0}", "{0}"],
+    "每首分析段數": ["每首分析段数", "Segments per track", "1 曲あたりの解析区間"],
+    "每首取幾段 10 秒的片段分析。越多越準，但越慢。之後調高只會補算新增的段落。": ["每首取几段 10 秒的片段分析。越多越准，但越慢。之后调高只会补算新增的段落。", "How many 10-second segments of each track are analysed. More is more accurate but slower. Raising it later analyses only the new segments.", "1 曲から 10 秒の区間をいくつ解析するかです。多いほど正確ですが遅くなります。後で増やした場合は、追加分だけを解析します。"],
+    "自動（{0} 段）": ["自动（{0} 段）", "Auto ({0})", "自動（{0} 区間）"],
+    "6 段（最快）": ["6 段（最快）", "6 (fastest)", "6 区間（最速）"],
+    "9 段": ["9 段", "9", "9 区間"],
+    "12 段（最準確）": ["12 段（最准确）", "12 (most accurate)", "12 区間（最も正確）"],
+    "沒有無法分析的曲目": ["没有无法分析的曲目", "Every track could be analysed", "解析できなかった曲はありません"],
+    "在 Finder 中顯示": ["在 Finder 中显示", "Show in Finder", "Finder で表示"],
+    "在檔案總管中顯示": ["在资源管理器中显示", "Show in File Explorer", "エクスプローラーで表示"],
+    "早晨 · 5:00–9:59": ["早晨 · 5:00–9:59", "5:00–9:59", "朝 · 5:00–9:59"],
+    "白天 · 10:00–15:59": ["白天 · 10:00–15:59", "10:00–15:59", "昼 · 10:00–15:59"],
+    "傍晚 · 16:00–18:59": ["傍晚 · 16:00–18:59", "16:00–18:59", "夕方 · 16:00–18:59"],
+    "夜晚 · 19:00–23:59": ["夜晚 · 19:00–23:59", "19:00–23:59", "夜 · 19:00–23:59"],
+    "深夜 · 0:00–4:59": ["深夜 · 0:00–4:59", "0:00–4:59", "深夜 · 0:00–4:59"],
+    "充滿活力、節奏強烈": ["充满活力、节奏强烈", "Full of energy, a strong beat", "エネルギッシュで、リズムが強い"],
+    "平靜、放鬆": ["平静、放松", "Calm and relaxed", "穏やかでリラックス"],
+    "柔和、溫暖": ["柔和、温暖", "Soft and warm", "柔らかく温かい"],
+    "明快、愉悅": ["明快、愉悦", "Bright and cheerful", "明るく楽しい"],
+    "抒情、感性": ["抒情、感性", "Lyrical and heartfelt", "叙情的でエモーショナル"],
+    "爵士與輕鬆氛圍": ["爵士与轻松氛围", "Jazz and easy-going", "ジャズとくつろいだ雰囲気"],
+    "律動、適合跳舞": ["律动、适合跳舞", "Grooves to dance to", "踊れるグルーヴ"],
+    "強烈、激昂": ["强烈、激昂", "Intense and fierce", "激しく高揚する"],
+    "所有已分類的曲目": ["所有已分类的曲目", "Every classified track", "分類済みのすべての曲"],
+    "{0} 沒有曲目": ["{0} 没有曲目", "{0} has no tracks", "{0} には曲がありません"],
+    "上一個頻道：{0}": ["上一个频道：{0}", "Previous channel: {0}", "前のチャンネル：{0}"],
+    "下一個頻道：{0}": ["下一个频道：{0}", "Next channel: {0}", "次のチャンネル：{0}"],
+    "打開播放畫面": ["打开播放画面", "Open Now Playing", "再生画面を開く"],
+    "切換到 {0}": ["切换到 {0}", "Switch to {0}", "{0} に切り替え"],
+    "現在": ["现在", "Now", "今"],
+    "{0} 首": ["{0} 首", "{0} tracks", "{0} 曲"],
+    "{0} / {1} 首已分析": ["{0} / {1} 首已分析", "{0} / {1} tracks analysed", "{0} / {1} 曲を解析済み"],
+    " · 背景分析中": [" · 后台分析中", " · analysing in the background", " · バックグラウンドで解析中"],
+    "還沒有分析完成的曲目。分析在背景進行，可以在「設定 → 曲庫 → {0}」查看進度與調整執行緒。": ["还没有分析完成的曲目。分析在后台进行，可以在「设置 → 曲库 → {0}」查看进度与调整线程。", "No track has been analysed yet. The analysis runs in the background; see its progress and threads in Settings → Library → {0}.", "解析済みの曲はまだありません。解析はバックグラウンドで行われます。進捗とスレッドは「設定 → ライブラリ → {0}」で確認できます。"],
+    "時段": ["时段", "Time of day", "時間帯"],
+    "心情": ["心情", "Mood", "ムード"],
+    "這首屬於 {0}": ["这首属于 {0}", "This belongs in {0}", "この曲は {0} に合う"],
+    "這首不屬於 {0}": ["这首不属于 {0}", "This doesn't belong in {0}", "この曲は {0} に合わない"],
+    "取消（{0}）": ["取消（{0}）", "Undo ({0})", "取り消す（{0}）"],
+    "（移出佇列）": ["（移出队列）", " (removed from the queue)", "（キューから外す）"],
+    "這個電台": ["这个电台", "this radio", "このラジオ"],
+    "{0}多來點這種": ["{0}多来点这种", "More like this on {0}", "{0}でこういう曲をもっと"],
+    "{0}不要這首": ["{0}不要这首", "Not this one on {0}", "{0}でこの曲はいらない"],
+    "沒有記下來，請再按一次": ["没有记下来，请再按一次", "That wasn't saved. Please press it again.", "記録されませんでした。もう一度押してください"],
+    "歌曲電台": ["歌曲电台", "Song radio", "曲ラジオ"],
+    "專輯電台": ["专辑电台", "Album radio", "アルバムラジオ"],
+    "歌手電台": ["歌手电台", "Artist radio", "アーティストラジオ"],
+    "電台": ["电台", "Radio", "ラジオ"],
+    "MoodWave {0}：{1}": ["MoodWave {0}：{1}", "MoodWave {0}: {1}", "MoodWave {0}：{1}"],
+    "這首歌還沒完成 AI 分析，已排到最前面，請稍後再試一次": ["这首歌还没完成 AI 分析，已排到最前面，请稍后再试一次", "This song hasn't been through the AI analysis yet. It's next in line; try again in a moment.", "この曲はまだ AI 解析が終わっていません。順番を先頭にしたので、少し待ってからもう一度お試しください"],
+    "目前無法開始{0}": ["目前无法开始{0}", "{0} couldn't start", "{0}を開始できません"],
+    "已開始{0}：{1}": ["已开始{0}：{1}", "{0} started: {1}", "{0}を開始：{1}"],
+    "（部分曲目還在 AI 分析，接下來的選曲會越來越準）": ["（部分曲目还在 AI 分析，接下来的选曲会越来越准）", " (some tracks are still in the AI analysis; the picks get better as it goes)", "（一部の曲はまだ AI 解析中です。選曲はだんだん正確になります）"],
+    "播完後接著播放相似的歌": ["播完后接着播放相似的歌", "Plays similar songs when the queue ends", "キューの再生後に似た曲を再生"],
+    "開始歌曲電台": ["开始歌曲电台", "Start song radio", "曲ラジオを開始"],
+    "開始歌手電台：{0}": ["开始歌手电台：{0}", "Start artist radio: {0}", "アーティストラジオを開始：{0}"],
+    "開始專輯電台": ["开始专辑电台", "Start album radio", "アルバムラジオを開始"],
+    "頻道模型": ["频道模型", "Channel model", "チャンネルモデル"],
+    "AI 模型": ["AI 模型", "AI model", "AI モデル"],
+    "AI 模型未下載": ["AI 模型未下载", "AI model not downloaded", "AI モデル未ダウンロード"],
+    "依每首歌的節奏、音色與調性，把曲庫分成 5 個時段和 8 種心情頻道。第一次分析需要一段時間。": ["根据每首歌的节奏、音色与调性，把曲库分成 5 个时段和 8 种心情频道。第一次分析需要一段时间。", "Sorts the library into 5 time-of-day and 8 mood channels by each song's rhythm, timbre and key. The first analysis takes a while.", "曲ごとのリズム、音色、調をもとに、ライブラリを 5 つの時間帯と 8 つのムードのチャンネルに分けます。最初の解析には時間がかかります。"],
+    "播放時限制讀取速度": ["播放时限制读取速度", "Limit read speed during playback", "再生中は読み込み速度を制限"],
+    "避免分析和播放搶硬碟造成斷音，音樂放在外接硬碟時建議開啟。沒在播放時照常全速分析。": ["避免分析和播放抢硬盘造成断音，音乐放在外接硬盘时建议开启。没在播放时照常全速分析。", "Keeps the analysis from competing with playback for the disk, which can cause dropouts. Recommended for music on an external drive. When nothing plays, it analyses at full speed.", "解析と再生がディスクを奪い合って音が途切れるのを防ぎます。音楽を外付けドライブに置いている場合におすすめです。再生していないときは全速で解析します。"],
+    "無限制": ["无限制", "No limit", "制限なし"],
+    "基本功能": ["基本功能", "Basics", "基本機能"],
+    "啟用 {0}": ["启用 {0}", "Enable {0}", "{0} を有効にする"],
+    "關閉後停止分析，側欄也不顯示 MoodWave。": ["关闭后停止分析，侧栏也不显示 MoodWave。", "When off, nothing is analysed and MoodWave leaves the sidebar.", "オフにすると解析を停止し、サイドバーにも MoodWave を表示しません。"],
+    "需要新版 MIKU": ["需要新版 MIKU", "Needs a newer MIKU", "新しい MIKU が必要"],
+    "佇列播完後，接著播放風格相近的歌。開啟期間，「佇列播完後」的設定會失效，關閉後恢復。": ["队列播完后，接着播放风格相近的歌。开启期间，「队列播完后」的设置会失效，关闭后恢复。", "When the queue ends, plays songs in a similar style. While this is on, the \"When the queue ends\" setting has no effect; it comes back when this is off.", "キューの再生が終わったら、雰囲気の近い曲を続けて再生します。オンの間は「キュー終了後」の設定が無効になり、オフにすると元に戻ります。"],
+    "啟用進階 AI": ["启用高级 AI", "Enable Advanced AI", "高度な AI を有効にする"],
+    "找出聽起來相似的歌，用於歌曲電台和 Smart Playlist。第一次開啟會下載約 {0} MB 的模型。": ["找出听起来相似的歌，用于歌曲电台和 Smart Playlist。第一次开启会下载约 {0} MB 的模型。", "Finds songs that sound alike, for song radio and the Smart Playlist. The first time, a model of about {0} MB is downloaded.", "似た響きの曲を見つけ、曲ラジオと Smart Playlist に使います。最初にオンにすると約 {0} MB のモデルをダウンロードします。"],
+    "進階 AI": ["高级 AI", "Advanced AI", "高度な AI"],
+  };
+  const LANG = ['zh-Hans', 'en', 'ja'].indexOf(typeof I18N !== 'undefined' ? I18N.lang : '');
+  const T = (s, ...v) => {
+    if (Array.isArray(s) && s.raw) {
+      let key = s[0];
+      for (let i = 1; i < s.length; i++) key += '{' + (i - 1) + '}' + s[i];
+      const w = LANG >= 0 && WORDS[key] ? WORDS[key][LANG] : key;
+      return w.replace(/\{(\d+)\}/g, (m, i) => i < v.length ? String(v[i]) : m);
+    }
+    return LANG >= 0 && WORDS[s] ? WORDS[s][LANG] : s;
+  };
+  /** A translation with an element in place of {0} (a logo in a title: its place differs by language). */
+  const withEl = (key, el) => T(key).split('{0}').flatMap((part, i) => i ? [el, part.trim()] : [part.trim()]).filter(x => x !== '');
+
+  const fmtEta = m => m == null ? '' : m < 60 ? T`約 ${m} 分鐘` : T`約 ${Math.floor(m / 60)} 小時 ${m % 60} 分鐘`;
 
   const mb = n => (n / 1e6).toFixed(0);
   const num = n => (n || 0).toLocaleString();
@@ -13,10 +144,10 @@
   /** The advanced AI's errors in words (the service gives them in English). */
   function aiError(e) {
     if (!e) return '';
-    if (/moodwave-clap not found/.test(e)) return '找不到 AI 分析程式（moodwave-clap），請重新安裝 MoodWave';
-    if (/not the one listed/.test(e)) return '下載的模型檔案驗證失敗（檔案不完整或已損毀），請重試';
-    if (/no download address/.test(e)) return '目前還沒有模型的下載位置';
-    if (/keeps ending/.test(e)) return 'AI 分析程式一再意外結束，已停用。請重新開啟進階 AI 再試一次';
+    if (/moodwave-clap not found/.test(e)) return T('找不到 AI 分析程式（moodwave-clap），請重新安裝 MoodWave');
+    if (/not the one listed/.test(e)) return T('模型檔案不完整或已損毀，請重試。');
+    if (/no download address/.test(e)) return T('目前沒有可用的模型下載位置。');
+    if (/keeps ending/.test(e)) return T('AI 分析程式多次意外結束，已停用。請重新開啟進階 AI。');
     return e;
   }
 
@@ -29,7 +160,7 @@
   /** A card's state line: what runs, its rate and the time left, and its own pause. */
   const stateLine = (text, pauseRpc, paused) => h('div', { class: 'mc-state' },
     h('span', { class: 'mc-line mc-dim' }, text),
-    pauseRpc ? h('button', { class: 'btn small ghost', onclick: () => MC.api.rpc(paused ? pauseRpc.resume : pauseRpc.pause).then(set) }, paused ? '繼續' : '暫停') : null);
+    pauseRpc ? h('button', { class: 'btn small ghost', onclick: () => MC.api.rpc(paused ? pauseRpc.resume : pauseRpc.pause).then(set) }, paused ? T('繼續') : T('暫停')) : null);
 
   /**
    * The basic card's progress: the analysis (with the loudness, measured with each track: a track counts once it
@@ -40,17 +171,17 @@
     const s = MC.status;
     if (!box || !box.isConnected || !s) return;
     box.textContent = '';
-    if (s.engineError) { box.append(h('div', { class: 'mc-err' }, '分析引擎無法啟動：' + s.engineError)); return; }
-    if (!s.engine) { box.append(h('div', { class: 'mc-line' }, '正在準備分析引擎…')); return; }
+    if (s.engineError) { box.append(h('div', { class: 'mc-err' }, T`分析引擎無法啟動：${s.engineError}`)); return; }
+    if (!s.engine) { box.append(h('div', { class: 'mc-line' }, T('正在準備分析引擎…'))); return; }
     const lp = s.loudness || { measured: 0, pending: 0 };
     // tracks analysed before loudness was measured get it afterwards: lp.pending beyond s.pending
     const done = Math.max(0, s.analysed - Math.max(0, lp.pending - s.pending));
-    box.append(h('div', { class: 'mc-rows' }, row('分析進度', s.total ? (done + s.failed) / s.total : 0,
+    box.append(h('div', { class: 'mc-rows' }, row(T('分析進度'), s.total ? (done + s.failed) / s.total : 0,
       h('b', null, `${num(done)} / ${num(s.total)}`),
-      s.failed ? h('button', { class: 'mc-link', onclick: () => { MC.manageOpen = MC.failOpen = true; drawManage(); drawFailed(); } }, `· ${num(s.failed)} 首無法分析`) : null)));
+      s.failed ? h('button', { class: 'mc-link', onclick: () => { MC.manageOpen = MC.failOpen = true; drawManage(); drawFailed(); } }, T`· ${num(s.failed)} 首無法分析`) : null)));
     const busy = s.pending || lp.pending;
-    const text = s.paused ? '已暫停' : !busy ? '已全部分析完成'
-      : '分析中' + (s.pending && s.perHour ? ` · 每小時約 ${num(s.perHour)} 首` : '') + (s.pending && s.etaMinutes != null ? ` · 剩餘${fmtEta(s.etaMinutes)}` : '');
+    const text = s.paused ? T('已暫停') : !busy ? T('分析完成')
+      : T('分析中') + (s.pending && s.perHour ? T` · 每小時約 ${num(s.perHour)} 首` : '') + (s.pending && s.etaMinutes != null ? T` · 剩餘${fmtEta(s.etaMinutes)}` : '');
     box.append(stateLine(text, busy ? { pause: 'pause', resume: 'resume' } : null, s.paused));
   }
 
@@ -64,23 +195,23 @@
     const rows = h('div', { class: 'mc-rows' });
     box.append(rows);
     if (dl.downloading) {
-      rows.append(row('模型', dl.bytes ? dl.done / dl.bytes : 0, `${dl.local ? '複製' : '下載'}中 ${mb(dl.done)} / ${mb(dl.bytes)} MB`,
-        h('button', { class: 'mc-link', onclick: () => MC.api.rpc('ai.cancel').then(set) }, '· 取消')));
+      rows.append(row(T('模型'), dl.bytes ? dl.done / dl.bytes : 0, dl.local ? T`複製中 ${mb(dl.done)} / ${mb(dl.bytes)} MB` : T`下載中 ${mb(dl.done)} / ${mb(dl.bytes)} MB`,
+        h('button', { class: 'mc-link', onclick: () => MC.api.rpc('ai.cancel').then(set) }, T('· 取消'))));
       return;
     }
     if (!dl.ready) {
-      rows.append(row('模型', 0, dl.error ? '下載失敗' : '等待下載',
-        dl.error ? h('button', { class: 'mc-link', onclick: () => MC.api.rpc('ai.download').then(set) }, '· 重試') : null));
+      rows.append(row(T('模型'), 0, dl.error ? T('下載失敗') : T('等待下載'),
+        dl.error ? h('button', { class: 'mc-link', onclick: () => MC.api.rpc('ai.download').then(set) }, T('· 重試')) : null));
       if (dl.error) box.append(h('div', { class: 'mc-err' }, aiError(dl.error)));
       return;
     }
-    const device = ai.device ? (ai.device === 'CPU' ? '使用 CPU' : '使用 GPU') : '';
-    rows.append(row('分析進度', ai.total ? ai.done / ai.total : 0, h('b', null, `${num(ai.done)} / ${num(ai.total)}`),
-      ' · ' + [device, `${ai.segments} 段`].filter(Boolean).join(' · ')));
+    const device = ai.device ? T`使用 ${ai.device === 'CPU' ? 'CPU' : 'GPU'}` : '';
+    rows.append(row(T('分析進度'), ai.total ? ai.done / ai.total : 0, h('b', null, `${num(ai.done)} / ${num(ai.total)}`),
+      ' · ' + [device, T`${ai.segments} 段`].filter(Boolean).join(' · ')));
     if (ai.error) { box.append(h('div', { class: 'mc-err' }, aiError(ai.error))); return; }
     const waiting = ai.pending && (ai.waitingForDsp || (s.pending && !s.paused));
-    const text = ai.paused ? '已暫停' : !ai.pending ? '已全部分析完成' : waiting ? '等基本分析完成後開始'
-      : '分析中' + (ai.perHour ? ` · 每小時約 ${num(ai.perHour)} 首` : '') + (ai.etaMinutes != null ? ` · 剩餘${fmtEta(ai.etaMinutes)}` : '');
+    const text = ai.paused ? T('已暫停') : !ai.pending ? T('分析完成') : waiting ? T('基本分析完成後開始')
+      : T('分析中') + (ai.perHour ? T` · 每小時約 ${num(ai.perHour)} 首` : '') + (ai.etaMinutes != null ? T` · 剩餘${fmtEta(ai.etaMinutes)}` : '');
     box.append(stateLine(text, ai.pending ? { pause: 'ai.pause', resume: 'ai.resume' } : null, ai.paused));
   }
 
@@ -92,21 +223,21 @@
     box.textContent = '';
     const ai = s.ai || {}, dl = ai.download || {};
     box.append(h('button', { class: 'mc-link mc-fold', onclick: () => { MC.manageOpen = !MC.manageOpen; if (!MC.manageOpen) MC.failOpen = false; drawManage(); drawFailed(); } },
-      (MC.manageOpen ? '▾' : '▸') + ' 管理分析資料'));
+      (MC.manageOpen ? '▾' : '▸') + ' ' + T('管理分析資料')));
     if (!MC.manageOpen) return;
     const acts = h('div', { class: 'mc-actions' },
-      s.failed ? h('button', { class: 'btn small ghost', onclick: toggleFailed }, MC.failOpen ? '隱藏無法分析的曲目' : `顯示無法分析的曲目（${num(s.failed)}）`) : null,
-      s.failed ? h('button', { class: 'btn small ghost', onclick: () => MC.api.rpc('reanalyze').then(refresh) }, '重新分析失敗的曲目') : null,
+      s.failed ? h('button', { class: 'btn small ghost', onclick: toggleFailed }, MC.failOpen ? T('隱藏無法分析的曲目') : T`顯示無法分析的曲目（${num(s.failed)}）`) : null,
+      s.failed ? h('button', { class: 'btn small ghost', onclick: () => MC.api.rpc('reanalyze').then(refresh) }, T('重新分析失敗的曲目')) : null,
       h('button', {
         class: 'btn small ghost',
-        onclick: () => { if (confirm('要清除所有基本分析結果，從頭分析整個曲庫嗎？（你的投票會保留）')) MC.api.rpc('reanalyze', { all: true }).then(refresh); },
-      }, '全部重新分析'));
+        onclick: () => { if (confirm(T('要清除基本分析結果，重新分析整個曲庫嗎？你的投票會保留。'))) MC.api.rpc('reanalyze', { all: true }).then(refresh); },
+      }, T('全部重新分析')));
     if (dl.ready || ai.total || ai.done) {
-      const size = `模型約 ${mb(dl.bytes || 285e6)} MB、分析結果約 ${Math.max(1, Math.round((ai.done || 0) * 1.1 / 1024))} MB`;
+      const size = T`模型約 ${mb(dl.bytes || 285e6)} MB、分析結果約 ${Math.max(1, Math.round((ai.done || 0) * 1.1 / 1024))} MB`;
       acts.append(h('button', {
         class: 'btn small ghost',
-        onclick: () => { if (confirm('要刪除 AI 模型與所有 AI 分析結果嗎？進階 AI 會一併關閉，之後開啟需要重新下載與分析。')) MC.api.rpc('ai.delete').then(set); },
-      }, '刪除 AI 資料'), h('span', { class: 'mc-line mc-dim mc-size' }, size));
+        onclick: () => { if (confirm(T('要刪除 AI 模型和分析結果嗎？進階 AI 會關閉，下次開啟需要重新下載和分析。'))) MC.api.rpc('ai.delete').then(set); },
+      }, T('刪除 AI 資料')), h('span', { class: 'mc-line mc-dim mc-size' }, size));
     }
     box.append(acts);
   }
@@ -120,18 +251,18 @@
     const s = MC.status || {}, ai = s.ai || {};
     const cpus = s.cpus || 1;
     box.textContent = '';
-    if (ai.gpuCapable) box.append(ui.field('使用 GPU', '用顯示卡分析，比 CPU 快很多；顯示卡不支援時會自動改用 CPU',
+    if (ai.gpuCapable) box.append(ui.field(T('使用 GPU'), T('用顯示卡分析，比 CPU 快很多。不支援時自動改用 CPU。'),
       ui.sw(ai.gpu !== false, v => MC.api.rpc('set', { aiGpu: v }).then(set))));
     // the model's threads matter only on the processor: no GPU here, the GPU turned off, or the GPU not usable
     if (!ai.gpuCapable || ai.gpu === false || ai.device === 'CPU') {
       const half = Math.max(1, Math.floor(cpus / 2));
-      box.append(ui.field('CPU 執行緒', `用 CPU 分析時的執行緒，越多越快，但會佔用較多 CPU（這台電腦有 ${cpus} 個）`,
-        ui.select([[0, `自動（${half} 條）`], ...Array.from({ length: cpus }, (_, i) => [i + 1, `${i + 1} 條`])], ai.threadSetting || 0,
+      box.append(ui.field(T('CPU 執行緒'), T`越多越快，CPU 負擔也越重。這台電腦有 ${cpus} 個。`,
+        ui.select([[0, T`自動（${half} 條）`], ...Array.from({ length: cpus }, (_, i) => [i + 1, T`${i + 1} 條`])], ai.threadSetting || 0,
           v => MC.api.rpc('set', { aiThreads: +v }).then(set))));
     }
     const auto = !ai.segmentSetting && ai.segments ? ai.segments : ai.gpuCapable && ai.gpu !== false ? 12 : 6;   // the service's own pick once it knows the device
-    box.append(ui.field('每首分析段數', '每首取幾段 10 秒的片段來分析。越多越準確，但也越慢；之後調高時只補算缺少的段落',
-      ui.select([[0, `自動（${auto} 段）`], [6, '6 段（最快）'], [9, '9 段'], [12, '12 段（最準確）']], ai.segmentSetting || 0,
+    box.append(ui.field(T('每首分析段數'), T('每首取幾段 10 秒的片段分析。越多越準，但越慢。之後調高只會補算新增的段落。'),
+      ui.select([[0, T`自動（${auto} 段）`], [6, T('6 段（最快）')], [9, T('9 段')], [12, T('12 段（最準確）')]], ai.segmentSetting || 0,
         v => MC.api.rpc('set', { aiSegments: +v }).then(set))));
   }
 
@@ -166,7 +297,7 @@
     const list = await MC.api.rpc('failed').catch(() => null);
     if (!list || seq !== MC.failSeq || !box.isConnected || !MC.failOpen) return;
     box.textContent = '';
-    if (!list.length) { box.append(h('div', { class: 'mc-line mc-dim' }, '沒有無法分析的曲目')); return; }
+    if (!list.length) { box.append(h('div', { class: 'mc-line mc-dim' }, T('沒有無法分析的曲目'))); return; }
     for (const f of list) {
       const cut = Math.max(f.path.lastIndexOf('/'), f.path.lastIndexOf(String.fromCharCode(92)));
       box.append(h('div', { class: 'mc-fail' },
@@ -174,7 +305,7 @@
           h('div', { class: 'mc-fail-name' }, f.path.slice(cut + 1)),
           h('div', { class: 'mc-fail-dir' }, f.path.slice(0, cut + 1)),
           h('div', { class: 'mc-fail-why' }, f.reason)),
-        h('button', { class: 'icon-btn', title: '在檔案總管中顯示', html: icon('folder'), onclick: () => Host.call('reveal', { id: f.id }) })));
+        h('button', { class: 'icon-btn', title: App.platform === 'mac' ? T('在 Finder 中顯示') : T('在檔案總管中顯示'), html: icon('folder'), onclick: () => Host.call('reveal', { id: f.id }) })));
     }
   }
   function toggleFailed() { MC.failOpen = !MC.failOpen; drawManage(); drawFailed(); }
@@ -198,20 +329,20 @@
   /* ── channel page (#/moods) ── */
   // the channels in their native order (0–4 time of day, 5–12 moods), then all of them; hue pairs: the card colours
   const INFO = [
-    { name: 'Morning', desc: '早晨 · 5:00–9:59', hue: [38, 22] },
-    { name: 'Daytime', desc: '白天 · 10:00–15:59', hue: [200, 180] },
-    { name: 'Evening', desc: '傍晚 · 16:00–18:59', hue: [18, 330] },
-    { name: 'Night', desc: '夜晚 · 19:00–23:59', hue: [250, 220] },
-    { name: 'Midnight', desc: '深夜 · 0:00–4:59', hue: [265, 235] },
-    { name: 'Energetic', desc: '充滿活力、節奏強烈', hue: [8, 340] },
-    { name: 'Relax', desc: '平靜、放鬆', hue: [160, 190] },
-    { name: 'Mellow', desc: '柔和、溫暖', hue: [215, 250] },
-    { name: 'Upbeat', desc: '明快、愉悅', hue: [45, 15] },
-    { name: 'Emotional', desc: '抒情、感性', hue: [330, 290] },
-    { name: 'Lounge', desc: '爵士與輕鬆氛圍', hue: [28, 5] },
-    { name: 'Dance', desc: '律動、適合跳舞', hue: [285, 320] },
-    { name: 'Extreme', desc: '強烈、激昂', hue: [355, 15] },
-    { name: 'Shuffle All', desc: '所有已分類的曲目', hue: [280, 200] },
+    { name: 'Morning', desc: T('早晨 · 5:00–9:59'), hue: [38, 22] },
+    { name: 'Daytime', desc: T('白天 · 10:00–15:59'), hue: [200, 180] },
+    { name: 'Evening', desc: T('傍晚 · 16:00–18:59'), hue: [18, 330] },
+    { name: 'Night', desc: T('夜晚 · 19:00–23:59'), hue: [250, 220] },
+    { name: 'Midnight', desc: T('深夜 · 0:00–4:59'), hue: [265, 235] },
+    { name: 'Energetic', desc: T('充滿活力、節奏強烈'), hue: [8, 340] },
+    { name: 'Relax', desc: T('平靜、放鬆'), hue: [160, 190] },
+    { name: 'Mellow', desc: T('柔和、溫暖'), hue: [215, 250] },
+    { name: 'Upbeat', desc: T('明快、愉悅'), hue: [45, 15] },
+    { name: 'Emotional', desc: T('抒情、感性'), hue: [330, 290] },
+    { name: 'Lounge', desc: T('爵士與輕鬆氛圍'), hue: [28, 5] },
+    { name: 'Dance', desc: T('律動、適合跳舞'), hue: [285, 320] },
+    { name: 'Extreme', desc: T('強烈、激昂'), hue: [355, 15] },
+    { name: 'Shuffle All', desc: T('所有已分類的曲目'), hue: [280, 200] },
   ];
   const SHUFFLE_ALL = 13;
   // the channel's picture for cards and the wheel: pre-rendered (tools/gen_backdrops.py), as an SVG it stuttered the page
@@ -226,7 +357,7 @@
   async function playChannel(i, still = () => true) {
     const r = await MC.api.rpc('start', { channel: i });
     if (!still()) return true;                               // another channel was asked for meanwhile: that one plays
-    if (!r || !r.ids.length) { toast(`${INFO[i].name} 沒有曲目`); return false; }
+    if (!r || !r.ids.length) { toast(T`${INFO[i].name} 沒有曲目`); return false; }
     await MC.api.play(r.ids, false, r.start, { at: r.at, source: { channel: i } });
     return true;
   }
@@ -317,8 +448,8 @@
     if (MC.rail) turnWheel(i, cycle(i), dir !== 0);
     refreshVotes();
     for (const x of [MC.band, MC.rail]) if (x) {
-      x.up.title = '上一個頻道：' + INFO[neighbour(i, -1)].name;
-      x.down.title = '下一個頻道：' + INFO[neighbour(i, 1)].name;
+      x.up.title = T`上一個頻道：${INFO[neighbour(i, -1)].name}`;
+      x.down.title = T`下一個頻道：${INFO[neighbour(i, 1)].name}`;
     }
   }
 
@@ -378,7 +509,7 @@
     const roll = h('span', { class: 'mc-roll' });             // the mark and the name roll as one
     const v = voteButtons();                                 // 👍 / 👎 right of the name
     // a click on the band (not on ▲▼ or 👍 / 👎) opens the now-playing page, as the radio's label does
-    const name = h('span', { class: 'mc-band-name', role: 'link', tabindex: 0, title: '打開播放畫面',
+    const name = h('span', { class: 'mc-band-name', role: 'link', tabindex: 0, title: T('打開播放畫面'),
       onkeydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNowPlaying(); } } }, roll);
     MC.band = h('div', { class: 'mc-band', onclick: e => { if (!e.target.closest('button')) openNowPlaying(); } }, up, name, down, v.votes);
     Object.assign(MC.band, { up, down, roll }, v);
@@ -454,7 +585,7 @@
 
   /* ── song radio (the advanced AI) ── */
 
-  const RADIO_KIND = { track: '歌曲電台', album: '專輯電台', artist: '歌手電台', smart: 'MoodWave' };
+  const RADIO_KIND = { track: T('歌曲電台'), album: T('專輯電台'), artist: T('歌手電台'), smart: 'MoodWave' };
   /** The Smart Playlist's label: where the queue goes on with MoodWave's picks (MIKU's slot source { smart: true }). */
   const SMART = { kind: 'smart', name: 'Smart Playlist' };
 
@@ -483,10 +614,10 @@
     const v = open && voteButtons(radioVote);
     if (v) MC.radioVotes = (MC.radioVotes || []).filter(x => x.votes.isConnected).concat([v]);
     const el = h('div', { class: cls + (open ? ' mc-radio-open' : ''), role: open && 'link', tabindex: open && 0,
-      title: radio.kind === 'smart' ? 'MoodWave Smart Playlist' : `MoodWave ${RADIO_KIND[radio.kind] || '電台'}：${radio.name || ''}`,
+      title: radio.kind === 'smart' ? 'MoodWave Smart Playlist' : T`MoodWave ${RADIO_KIND[radio.kind] || T('電台')}：${radio.name || ''}`,
       onclick: open && openNowPlaying, onkeydown: open && (e => { if (e.target === el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openNowPlaying(); } }) },
       h('span', { class: 'mc-radio-mark', html: logo(logoCls) }),
-      h('span', { class: 'mc-radio-text' }, h('small', null, RADIO_KIND[radio.kind] || '電台'), h('b', null, radio.name || '')),
+      h('span', { class: 'mc-radio-text' }, h('small', null, RADIO_KIND[radio.kind] || T('電台')), h('b', null, radio.name || '')),
       v && v.votes);
     refreshRadioVotes();
     return el;
@@ -513,9 +644,10 @@
       const v = MC.radioVote.v;
       x.yes.setAttribute('aria-pressed', String(v > 0));
       x.no.setAttribute('aria-pressed', String(v < 0));
-      const where = radioSource() && radioSource().smart ? 'Smart Playlist' : '這個電台';
-      x.yes.title = v > 0 ? `取消（${where}多來點這種）` : `${where}多來點這種`;
-      x.no.title = v < 0 ? `取消（${where}不要這首）` : `${where}不要這首`;
+      const where = radioSource() && radioSource().smart ? 'Smart Playlist' : T('這個電台');
+      const yes = T`${where}多來點這種`, no = T`${where}不要這首`;
+      x.yes.title = v > 0 ? T`取消（${yes}）` : yes;
+      x.no.title = v < 0 ? T`取消（${no}）` : no;
     }
   }
 
@@ -535,7 +667,7 @@
     const cur = MC.radioVote && MC.radioVote.id === id ? MC.radioVote.v : 0;
     const next = set || cur !== v ? v : 0;
     const r = await MC.api.rpc('radio.vote', { id, source: src, vote: next }).catch(() => null);
-    if (!r || !r.known) { toast('沒有記下來，請再按一次'); return; }
+    if (!r || !r.known) { toast(T('沒有記下來，請再按一次')); return; }
     setRadioVotes(id, r);
     // the track queued next picked again with the vote known, then a 👎 skips to it
     await repickAfter(id, (App.queue || {}).index);
@@ -847,11 +979,11 @@
   function showRowVote(v, t) {
     v.yes.setAttribute('aria-pressed', String(v.vote > 0));
     v.no.setAttribute('aria-pressed', String(v.vote < 0));
-    const [yes, no] = t.kind === 'radio'
-      ? [`${t.src.smart ? 'Smart Playlist' : '這個電台'}多來點這種`, `${t.src.smart ? 'Smart Playlist' : '這個電台'}不要這首（移出佇列）`]
-      : [`這首屬於 ${INFO[t.ch].name}`, `這首不屬於 ${INFO[t.ch].name}（移出佇列）`];
-    v.yes.title = v.vote > 0 ? `取消（${yes}）` : yes;
-    v.no.title = v.vote < 0 ? `取消（${no.replace('（移出佇列）', '')}）` : no;
+    // 👎 on a row also takes the track out of the queue: said after it, not when taking the vote back
+    const where = t.kind === 'radio' && (t.src.smart ? 'Smart Playlist' : T('這個電台'));
+    const [yes, no] = where ? [T`${where}多來點這種`, T`${where}不要這首`] : [T`這首屬於 ${INFO[t.ch].name}`, T`這首不屬於 ${INFO[t.ch].name}`];
+    v.yes.title = v.vote > 0 ? T`取消（${yes}）` : yes;
+    v.no.title = v.vote < 0 ? T`取消（${no}）` : no + T('（移出佇列）');
   }
 
   async function askRowVotes() {
@@ -892,7 +1024,7 @@
     const next = v.vote === x ? 0 : x;
     const r = await (t.kind === 'radio' ? MC.api.rpc('radio.vote', { id: row.id, source: t.src, vote: next })
                                         : MC.api.rpc('vote', { id: row.id, channel: t.ch, vote: next })).catch(() => null);
-    if (!r || r.known === false) { toast('沒有記下來，請再按一次'); return; }
+    if (!r || r.known === false) { toast(T('沒有記下來，請再按一次')); return; }
     v.vote = r.vote || 0;
     showRowVote(v, t);
     if (t.kind === 'channel') {                              // the channel's sizes may have changed
@@ -994,11 +1126,11 @@
     let r = null;
     try { r = await MC.api.rpc('radio.start', args); } catch (e) { console.error('[moodchannels] radio', e); }
     if (!r || !r.ok) {
-      toast(r && r.reason === 'embedding' ? '這首歌還沒完成 AI 分析，已排到最前面，請稍後再試一次' : `目前無法開始${kind}`, { error: true });
+      toast(r && r.reason === 'embedding' ? T('這首歌還沒完成 AI 分析，已排到最前面，請稍後再試一次') : T`目前無法開始${kind}`, { error: true });
       return;
     }
     await MC.api.play(r.ids, false, 0, { source: r.source });
-    toast(`已開始${kind}：${args.name}` + (r.waiting ? '（部分曲目還在 AI 分析，接下來的選曲會越來越準）' : ''));
+    toast(T`已開始${kind}：${args.name}` + (r.waiting ? T('（部分曲目還在 AI 分析，接下來的選曲會越來越準）') : ''));
   }
 
   /** Leaving channel mode: the band closes to the left, the cover and the title following it. */
@@ -1174,8 +1306,9 @@
       const name = INFO[t.ch].name;
       x.yes.setAttribute('aria-pressed', String(v > 0));
       x.no.setAttribute('aria-pressed', String(v < 0));
-      x.yes.title = v > 0 ? '取消（這首屬於 ' + name + '）' : '這首屬於 ' + name;
-      x.no.title = v < 0 ? '取消（這首不屬於 ' + name + '）' : '這首不屬於 ' + name;
+      const yes = T`這首屬於 ${name}`, no = T`這首不屬於 ${name}`;
+      x.yes.title = v > 0 ? T`取消（${yes}）` : yes;
+      x.no.title = v < 0 ? T`取消（${no}）` : no;
     }
   }
 
@@ -1211,7 +1344,7 @@
     const cur = MC.vote && MC.vote.id === t.id && MC.vote.ch === t.ch ? MC.vote.v : 0;
     const next = cur === v ? 0 : v;
     const r = await MC.api.rpc('vote', { id: t.id, channel: t.ch, vote: next }).catch(() => null);
-    if (!r) { toast('沒有記下來，請再按一次'); return; }
+    if (!r) { toast(T('沒有記下來，請再按一次')); return; }
     setVotes(t, r);
     MC.counts = null;                                      // the channels' sizes may have changed
     if (MC.pageView && MC.pageView.isConnected) renderPage(MC.pageView);   // the channel page open: its counts at once
@@ -1258,7 +1391,7 @@
       el.keepLive = x === i;
       if (el.keepLive) live(el, x); else if (!el.matches(':hover')) still(el);
       el.classList.toggle('far', Math.abs(o) > 3);
-      el.title = x === i ? '' : '切換到 ' + INFO[x].name;
+      el.title = x === i ? '' : T`切換到 ${INFO[x].name}`;
       el.onclick = () => { if (x !== MC.showing) go(x, Math.sign(o)); };
       if (jump) requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove('jump')));
     });
@@ -1318,7 +1451,7 @@
       h('div', { class: 'mc-shade' }),                    // darkening for the white type, and the fine edge
       h('div', { class: 'mc-mosaic' }),
       h('div', { class: 'mc-meta' },
-        cls === 'mc-hero' ? h('div', { class: 'mc-now' }, '現在') : null,
+        cls === 'mc-hero' ? h('div', { class: 'mc-now' }, T('現在')) : null,
         h('div', { class: 'mc-name' }, info.name),
         h('div', { class: 'mc-desc' }, info.desc),
         h('div', { class: 'mc-count num' })));
@@ -1340,7 +1473,7 @@
     if (el.count === n && el.coversOf === key) return;          // nothing changed: leave the card untouched
     el.count = n;
     el.classList.toggle('empty', !n);
-    const text = n ? `${n.toLocaleString()} 首` : '—', count = el.querySelector('.mc-count');
+    const text = n ? T`${n.toLocaleString()} 首` : '—', count = el.querySelector('.mc-count');
     if (count.textContent !== text) count.textContent = text;
     // the covers stay once there are four (the sample shifts as the channel grows: new covers every redraw would
     // keep the page moving); until then they follow the tracks found
@@ -1423,7 +1556,7 @@
     const data = await loadCounts();
     if (!view.isConnected) return;
     const s = MC.status || {};
-    const sub = `${data.analysed.toLocaleString()} / ${data.total.toLocaleString()} 首已分析${s.pending ? ' · 背景分析中' : ''}`;
+    const sub = T`${data.analysed.toLocaleString()} / ${data.total.toLocaleString()} 首已分析` + (s.pending ? T(' · 背景分析中') : '');
     const page = view.mcPage;
     if (!opening && page && page.zone === nowZone() && data.analysed) {
       if (page.sub && page.sub.textContent !== sub) page.sub.textContent = sub;
@@ -1437,15 +1570,15 @@
     const body = h('div', { class: 'mc-body' });         // the page's side margins, as under .page-head
     view.append(body);
     if (!data.analysed) {
-      body.append(h('div', { class: 'mc-empty' }, `還沒有分析完成的曲目。分析在背景進行，可以在「設定 → 曲庫 → ${NAME}」查看進度與調整執行緒。`));
+      body.append(h('div', { class: 'mc-empty' }, T`還沒有分析完成的曲目。分析在背景進行，可以在「設定 → 曲庫 → ${NAME}」查看進度與調整執行緒。`));
       return;
     }
     const zone = nowZone();
     const time = data.channels.filter(c => c.time);
-    body.append(h('div', { class: 'mc-sect' }, '時段'));
+    body.append(h('div', { class: 'mc-sect' }, T('時段')));
     body.append(h('div', { class: 'mc-time' }, card(time[zone], 'mc-hero'),
       h('div', { class: 'mc-others' }, ...time.filter(c => c.index !== zone).map(c => card(c, 'mc-small')))));
-    body.append(h('div', { class: 'mc-sect' }, '心情'));
+    body.append(h('div', { class: 'mc-sect' }, T('心情')));
     // Shuffle All first, then the eight moods
     const moods = data.channels.filter(c => !c.time);
     body.append(h('div', { class: 'mc-grid' }, ...[moods.find(c => c.index === SHUFFLE_ALL), ...moods.filter(c => c.index !== SHUFFLE_ALL)].map(c => card(c, 'mc-mood'))));
@@ -1526,18 +1659,18 @@
         el.append(h('div', { class: 'mc-qhead' },
           h('span', { class: 'mc-qhead-mark', html: logo('mc-qhead-logo') }),
           h('span', { class: 'mc-qhead-text' }, h('b', null, 'MoodWave Smart Playlist'),
-            h('small', null, radio ? `${RADIO_KIND[radio.kind] || '電台'} · ${radio.name || ''}` : '播完後接著播放相似的歌'))));
+            h('small', null, radio ? `${RADIO_KIND[radio.kind] || T('電台')} · ${radio.name || ''}` : T('播完後接著播放相似的歌')))));
       });
       // 👍 / 👎 at the right of the upcoming rows while MoodWave plays (a radio, the Smart Playlist, a channel)
       if (api.queueRow) api.queueRow(queueRow);
       // the song radio from a track, its artist or an album (only with the advanced AI and some of it analysed)
       if (api.addMenu) {
         api.addMenu('track', t => radioReady() ? [
-          { label: '開始歌曲電台', icon: 'mc-radio', run: () => startRadio({ kind: 'track', ids: [t.id], name: t.title }) },
-          t.artist ? { label: `開始歌手電台：${t.artist}`, icon: 'mc-radio', run: () => startRadio({ kind: 'artist', artist: t.artist, name: t.artist }) } : null,
+          { label: T('開始歌曲電台'), icon: 'mc-radio', run: () => startRadio({ kind: 'track', ids: [t.id], name: t.title }) },
+          t.artist ? { label: T`開始歌手電台：${t.artist}`, icon: 'mc-radio', run: () => startRadio({ kind: 'artist', artist: t.artist, name: t.artist }) } : null,
         ] : null);
         api.addMenu('album', al => radioReady() ? [
-          { label: '開始專輯電台', icon: 'mc-radio', run: () => startRadio({ kind: 'album', ids: al.tracks.map(t => t.id), name: al.title }) },
+          { label: T('開始專輯電台'), icon: 'mc-radio', run: () => startRadio({ kind: 'album', ids: al.tracks.map(t => t.id), name: al.title }) },
         ] : null);
       }
       Host.on('queue', beat);
@@ -1559,15 +1692,14 @@
         return () => { clearInterval(timer); if (MC.pageView === view) MC.pageView = null; };
       });
       await refresh();
-      MC.tuning = await api.rpc('tuning').catch(() => null);
       // 關於: the mark large on the left, the name, a line on what it is for, and its models' versions
       api.addSettings('about', host => {
         const st = MC.status || {}, dl = (st.ai && st.ai.download) || {};
         // each model's version in a light capsule, as Daphne's commit
         const ver = v => h('code', { class: 'mc-commit' }, String(v).slice(0, 6));
         const models = h('small', { class: 'mc-about-models' },
-          st.engine ? h('span', null, '頻道模型', ver(st.engine)) : null,
-          dl.ready && dl.version ? h('span', null, 'AI 模型', ver(dl.version)) : h('span', null, 'AI 模型未下載'));
+          st.engine ? h('span', null, T('頻道模型'), ver(st.engine)) : null,
+          dl.ready && dl.version ? h('span', null, T('AI 模型'), ver(dl.version)) : h('span', null, T('AI 模型未下載')));
         host.append(h('div', { class: 'field mc-about', html: logo('mc-about-logo') },
           h('div', { class: 'lbl' }, h('b', null, brand()), h('small', { class: 'mc-about-line' }, 'Your library, in the right mood.'),
             models)));
@@ -1577,33 +1709,22 @@
         const s = MC.status || {}, ai = s.ai || {};
         const card = (title, ...kids) => h('div', { class: 'mc-sc' }, h('div', { class: 'mc-sc-title' }, title), ...kids);
         const sect = ui.section(h('span', { class: 'mc-title mc-sect-title', html: logo('mc-sect-logo') }, brand()),
-          '分析每首歌的節奏、音色與調性，自動分成 5 個時段與 8 種心情頻道。開啟進階 AI 後，還能找出聽起來相似的歌，用在歌曲電台與 Smart Playlist。分析在背景進行，只有第一次比較久。');
+          T('依每首歌的節奏、音色與調性，把曲庫分成 5 個時段和 8 種心情頻道。第一次分析需要一段時間。'));
 
         /* ── 基本功能: the channels ── */
         const cpus = s.cpus || 1;
         MC.basicBody = h('div', { class: 'mc-sc-body' });
-        // models\basic\tuning.json: channel tuning learnt from votes, shipped with the module; the listener's own votes come
-        // first. Asked again each time the block is drawn: just after MIKU starts the module may still be loading it
-        const tuningBox = h('div', { class: 'mc-tuning' });
-        const drawTuning = t => {
-          tuningBox.textContent = '';
-          if (!t || !t.channels || !t.channels.length) return;
-          tuningBox.append(ui.field('使用內建的頻道調整', '依內建的投票學習結果，把不符合頻道感覺的歌移出；你自己投的讚與倒讚永遠優先',
-            ui.sw(t.builtin !== false, v => api.rpc('set', { builtin: v }).then(r => { MC.tuning.builtin = v; MC.counts = null; set(r); }))));
-        };
-        drawTuning(MC.tuning);
-        api.rpc('tuning').then(t => { if (!t) return; MC.tuning = t; if (tuningBox.isConnected) drawTuning(t); }).catch(() => { });
-        MC.basicBody.append(tuningBox);
-        MC.basicBody.append(ui.field('CPU 執行緒', `越多越快，但會佔用較多 CPU；播放時建議保留餘裕（這台電腦有 ${cpus} 個）`,
-          ui.select(Array.from({ length: cpus }, (_, i) => [i + 1, `${i + 1} 條`]), s.threads || 1, v => api.rpc('set', { threads: +v }).then(set))));
+        // the built-in tuning (models\basic\tuning.json) is always on: no switch here (MoodService)
+        MC.basicBody.append(ui.field(T('CPU 執行緒'), T`越多越快，CPU 負擔也越重。這台電腦有 ${cpus} 個。`,
+          ui.select(Array.from({ length: cpus }, (_, i) => [i + 1, T`${i + 1} 條`]), s.threads || 1, v => api.rpc('set', { threads: +v }).then(set))));
         // the analyses' disk speed while a track plays (the basic one's reader, and the advanced AI's): a USB hard disk is
         // not starved. In the basic card: it applies without the advanced AI too
-        MC.basicBody.append(ui.field('限制分析速度', '播放時限制背景分析讀取硬碟的速度，避免和播放搶硬碟造成斷音（音樂放在 USB 外接硬碟時特別有用）；暫停或停止播放時照常全速分析',
-          ui.select([[4, '4 MB/s'], [8, '8 MB/s'], [16, '16 MB/s'], [0, '無限制']], s.readLimit ?? 0, v => api.rpc('set', { readLimit: +v }).then(set))));
+        MC.basicBody.append(ui.field(T('播放時限制讀取速度'), T('避免分析和播放搶硬碟造成斷音，音樂放在外接硬碟時建議開啟。沒在播放時照常全速分析。'),
+          ui.select([[4, '4 MB/s'], [8, '8 MB/s'], [16, '16 MB/s'], [0, T('無限制')]], s.readLimit ?? 0, v => api.rpc('set', { readLimit: +v }).then(set))));
         MC.block = h('div', { class: 'mc-progress' });
         MC.basicBody.append(h('div', { class: 'field mc-field' }, MC.block));
-        sect.append(card('基本功能',
-          ui.field(h('span', { class: 'mc-enable-title' }, '啟用', h('span', { class: 'mc-smart-title', html: logo('mc-smart-logo') }, 'MoodWave')), '關閉時不分析，也不顯示 MoodWave', ui.sw(s.enabled !== false, v => api.rpc('set', { enabled: v }).then(r => {
+        sect.append(card(T('基本功能'),
+          ui.field(h('span', { class: 'mc-enable-title' }, withEl('啟用 {0}', h('span', { class: 'mc-smart-title', html: logo('mc-smart-logo') }, 'MoodWave'))), T('關閉後停止分析，側欄也不顯示 MoodWave。'), ui.sw(s.enabled !== false, v => api.rpc('set', { enabled: v }).then(r => {
             set(r);
             // MoodWave off: the Smart Playlist cannot run either, so MIKU's own 佇列播完後 comes back
             if (!v && canContinue && smartOn()) setSmart(false);
@@ -1623,8 +1744,8 @@
         };
         const contSwitch = ui.sw(canContinue && smartOn(), v => setSmart(v));
         const cont = ui.field(h('span', { class: 'mc-smart-title', html: logo('mc-smart-logo') }, 'MoodWave Smart Playlist',
-          canContinue ? null : h('span', { class: 'mc-soon' }, '需要新版 MIKU')),
-          '佇列播完後，接著播放風格相近的歌。開啟時「音訊 → 播放 → 佇列播完後」會暫停使用，關閉後恢復原本的選擇', contSwitch);
+          canContinue ? null : h('span', { class: 'mc-soon' }, T('需要新版 MIKU'))),
+          T('佇列播完後，接著播放風格相近的歌。開啟期間，「佇列播完後」的設定會失效，關閉後恢復。'), contSwitch);
         if (!canContinue) cont.classList.add('mc-off');
         MC.aiSwitch = ui.sw(!!ai.enabled, v => api.rpc('set', { ai: v }).then(r => {
           set(r);
@@ -1634,11 +1755,11 @@
           if (v && (App.settings.autoContinue || 'off') === 'off') setSmart(true);
           if (!v && smartOn()) setSmart(false);
         }));
-        MC.aiField = ui.field('啟用進階 AI', `歌曲電台與 Smart Playlist。第一次開啟會下載約 ${mb((ai.download && ai.download.bytes) || 285e6)} MB 的模型（需要先啟用 MoodWave）`, MC.aiSwitch);
+        MC.aiField = ui.field(T('啟用進階 AI'), T`找出聽起來相似的歌，用於歌曲電台和 Smart Playlist。第一次開啟會下載約 ${mb((ai.download && ai.download.bytes) || 285e6)} MB 的模型。`, MC.aiSwitch);
         MC.methodBox = h('div', { class: 'mc-method' });
         MC.aiBlock = h('div', { class: 'mc-progress' });
         MC.aiBody = h('div', { class: 'mc-sc-body' }, cont, MC.methodBox, h('div', { class: 'field mc-field' }, MC.aiBlock));
-        sect.append(card('進階 AI', MC.aiField, MC.aiBody));
+        sect.append(card(T('進階 AI'), MC.aiField, MC.aiBody));
 
         // Progress redraws only the controls: keep the scrollable failure list mounted beside them.
         MC.manageBox = h('div', { class: 'mc-manage-controls' });

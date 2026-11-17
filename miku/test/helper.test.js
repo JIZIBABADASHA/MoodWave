@@ -203,11 +203,10 @@ let vote = null;        // the track and channel voted on
     s = await h.rpc('set', { enabled: true, threads: 1 });
     check('analysis on again', s.enabled === true && s.threads === 1, { enabled: s.enabled, threads: s.threads });
     from = h.messages.length;
+    // the built-in tuning is not a setting: an old client asking it off changes nothing
     await h.rpc('set', { builtin: false });
-    check('built-in tuning off: saved', h.settings(from).some(m => m.setting === 'builtin' && m.value === false));
-    check('tuning shows it off', (await h.rpc('tuning')).builtin === false);
-    await h.rpc('set', { builtin: true });
-    check('and on again', (await h.rpc('tuning')).builtin === true);
+    check('built-in tuning stays on', (await h.rpc('tuning')).builtin === true);
+    check('and is not saved', !h.settings(from).some(m => m.setting === 'builtin'));
     const ex = await h.rpc('tuning.export');
     check('tuning.export writes tuning.json', ex.ok === true && fs.existsSync(ex.file) && path.dirname(ex.file) === dataDir, { ok: ex.ok, channels: ex.channels });
     check('unknown call: null', (await h.rpc('nonsense')) === null);

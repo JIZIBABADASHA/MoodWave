@@ -729,9 +729,10 @@ MIKU 的 ReplayGain 使用這些數值，有這些選項：
 | 設定 | 選項 | 預設 | 鍵值 |
 |---|---|---|---|
 | 啟用 MoodWave | 開、關 | 開 | `enabled` |
-| 使用內建的頻道調整 | 開、關 | 開 | `builtin` |
 | CPU 執行緒 | 1 到核心數 | 1 | `threads` |
 | 限制分析速度 | 4、8、16 MB/s、無限制 | 無限制 | `readLimit` |
+
+內建的頻道調整（`models/basic/tuning.json`）一律使用，不是設定。
 
 ### 9.2 進階 AI 卡片
 

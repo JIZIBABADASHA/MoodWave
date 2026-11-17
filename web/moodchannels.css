@@ -508,9 +508,6 @@ html:root.mc-radio #np-cover.mc-dragging { cursor: grabbing; }
 /* a radio's band comes in and goes out as the channel band does (pushInto / pushOut): its content tucked away meanwhile */
 .mc-radio-band { box-sizing: border-box; flex: none; white-space: nowrap; }
 .mc-radio-band.pushing { overflow: hidden; }
-/* the built-in tuning's row (drawn once the module has it): its own box, so its field keeps the card's line above it */
-.mc-tuning:empty { display: none; }
-.mc-sc-body > .mc-tuning > .field { border-top: 1px solid var(--line); }
 /* a narrow window: the radio's 👍 / 👎 leave the bar (the now-playing page's label keeps them), its name gives way */
 .mc-radio-band.mc-tight > .mc-votes { display: none; }
 .mc-radio-band .mc-radio-text { min-width: 0; overflow: hidden; }

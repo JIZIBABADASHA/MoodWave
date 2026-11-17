@@ -742,9 +742,10 @@ When a channel starts, its first track is a track with a measured loudness, if p
 | Setting | Values | Default | Key |
 |---|---|---|---|
 | 啟用 MoodWave | On, off | On | `enabled` |
-| 使用內建的頻道調整 | On, off | On | `builtin` |
 | CPU 執行緒 | 1 to the number of cores | 1 | `threads` |
 | 限制分析速度 | 4, 8, 16 MB/s, 無限制 | 無限制 | `readLimit` |
+
+The built-in tuning (`models/basic/tuning.json`) is always used; it is not a setting.
 
 ### 9.2 Advanced AI card
 
