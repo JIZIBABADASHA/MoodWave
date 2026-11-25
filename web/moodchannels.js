@@ -845,19 +845,36 @@
   /**
    * Whether the hint beside the cover leaves the window or touches anything shown on the page: the cover, the song info,
    * the radio's band (#np-ext), the lyrics … Anything drawn there, so every layout is covered, not only the known ones;
-   * what lies wholly behind the cover (the page's backdrop, the cover's own picture) is not in the way.
+   * what lies wholly behind the cover (the page's backdrop, the cover's own picture) is not in the way. A box drawn by
+   * a theme (a panel's frame, fill or glow: the terminal's lyrics screen, the channel wheel's 👍 / 👎 pill) is kept
+   * clear by FRAME: a box beside the cover may not be touched at all, and one the cover sits in (a backdrop panel) only
+   * keeps the hint off its edges.
    */
+  const FRAME = 14;   // a frame's own glow / bezel (often a pseudo-element just outside its box) included
+  function draws(o) {
+    const cs = getComputedStyle(o);
+    const clear = v => { const n = /^rgba?\(/.test(v || '') && v.match(/[\d.]+/g); return !v || v === 'transparent' || !!(n && n.length === 4 && +n[3] === 0); };
+    if (!clear(cs.backgroundColor) || cs.backgroundImage !== 'none' || cs.boxShadow !== 'none') return true;
+    if (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0 && !clear(cs.outlineColor)) return true;
+    return ['Top', 'Right', 'Bottom', 'Left'].some(e => cs['border' + e + 'Style'] !== 'none' && parseFloat(cs['border' + e + 'Width']) > 0 && !clear(cs['border' + e + 'Color']));
+  }
   function crowded(el, cover) {
     const near = 6, r = el.getBoundingClientRect(), c = cover.getBoundingClientRect();
-    const hits = b => b.width > 0 && b.height > 0 && b.left < r.right + near && b.right > r.left - near && b.top < r.bottom + near && b.bottom > r.top - near;
+    const hits = (b, m = near) => b.width > 0 && b.height > 0 && b.left < r.right + m && b.right > r.left - m && b.top < r.bottom + m && b.bottom > r.top - m;
+    const holds = b => b.left <= c.left && b.right >= c.right && b.top <= c.top && b.bottom >= c.bottom;
     if (r.left < 0 || r.right > window.innerWidth || hits(c)) return true;
     const np = document.getElementById('np') || document.body;
+    const shown = o => o.checkVisibility ? o.checkVisibility({ opacityProperty: true, visibilityProperty: true }) : true;
     return [...np.querySelectorAll('*')].some(o => {
-      if (o.closest('.mc-swipe-hint, .mc-swipe-glow') || cover.contains(o)) return false;
-      if (o.firstElementChild && ![...o.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) return false;   // only what draws
+      if (o.closest('.mc-swipe-hint, .mc-swipe-glow') || cover.contains(o) || o === np) return false;
       const b = o.getBoundingClientRect();
-      if (!hits(b) || (b.left <= c.left && b.right >= c.right && b.top <= c.top && b.bottom >= c.bottom)) return false;
-      return o.checkVisibility ? o.checkVisibility({ opacityProperty: true, visibilityProperty: true }) : true;
+      if (!hits(b, FRAME)) return false;
+      const box = o.firstElementChild && ![...o.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+      if (!box) return hits(b) && !holds(b) && shown(o);                       // text, an icon, a picture
+      if (!draws(o) || !shown(o)) return false;                                  // a layout box only
+      if (!holds(b)) return true;                                                // a panel beside the cover
+      // a panel the cover sits in: the hint stays inside it, off its edges
+      return r.left < b.left + FRAME || r.right > b.right - FRAME || r.top < b.top + FRAME || r.bottom > b.bottom - FRAME;
     });
   }
 
