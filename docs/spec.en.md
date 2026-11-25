@@ -401,7 +401,7 @@ If the window is 1100 pixels wide or less, this label does not show.
 
 ### 5.7 Swipe votes on the cover
 
-While a radio or the Smart Playlist plays, the listener can give a vote with the cover on the now-playing page.
+While a radio, the Smart Playlist or a channel plays, the listener can give a vote with the cover on the now-playing page.
 
 | Action | Effect |
 |---|---|
@@ -418,7 +418,7 @@ The vote has the same effect as the vote on the player bar (5.3, 6.5).
 Each time the now-playing page opens, a faint 👎 shows at the left of the cover and a faint 👍 at the right.
 They show 5 times and then go away. They are not buttons.
 
-Channels do not have swipe votes. While a channel plays, the now-playing page shows the channel list with 👍 and 👎.
+While a channel plays, the swipe gives the channel's vote, the same as the 👍 and 👎 next to the channel list. Shuffle All has no votes, so its cover cannot be swiped.
 
 ## 6. Smart Playlist
 

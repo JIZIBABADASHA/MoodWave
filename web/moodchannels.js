@@ -675,18 +675,32 @@
   }
 
   /*
-   * The now-playing page's cover while a radio plays answers a swipe as 👍 / 👎 do: to the right it flips round and a 👍
-   * flashes on it, to the left it drops away with a 👎 and the next track comes. A mouse drag or a touch moves the cover
-   * with the pointer first; a trackpad's two-finger swipe (a sideways wheel) does it at once.
+   * The now-playing page's cover while a radio, the Smart Playlist or a channel plays answers a swipe as 👍 / 👎 do: to
+   * the right it flips round and a 👍 flashes on it, to the left it drops away with a 👎 and the next track comes. A
+   * mouse drag or a touch moves the cover with the pointer first; a trackpad's two-finger swipe (a sideways wheel) does
+   * it at once. In a channel the vote is the channel's, the same as its 👍 / 👎 on the wheel beside the cover.
    */
   const SWIPE = { px: 90, wheel: 120 };
   const FLING = 1.6;                                          // the least speed a 👎 cover flies out at, px per ms
+
+  /**
+   * What a swipe on the cover votes in now: { v: the track's vote there, cast(v, set) }; null when there is nothing to
+   * vote (Shuffle All, MoodWave not playing, the track's vote not known yet).
+   */
+  function coverVote() {
+    const id = App.state && App.state.trackId;
+    if (radioSource()) return MC.radioVote && MC.radioVote.id === id ? { v: MC.radioVote.v, cast: radioVote } : null;
+    const t = voteTarget();
+    return t && MC.vote && MC.vote.id === t.id && MC.vote.ch === t.ch ? { v: MC.vote.v, cast: vote } : null;
+  }
+  /** Whether the cover is to show that it can be swiped (the vote may still be on its way). */
+  const swipeable = () => !!radioSource() || !!voteTarget();
 
   function coverSwipe() {
     const cover = document.getElementById('np-cover');
     if (!cover || cover.mcSwipe) return;
     cover.mcSwipe = true;
-    const can = () => !MC.swiping && !!radioSource() && !!MC.radioVote && MC.radioVote.id === (App.state && App.state.trackId);
+    const can = () => !MC.swiping && !!coverVote();
     let drag = null;
     cover.addEventListener('dragstart', e => { if (can()) e.preventDefault(); });
     cover.addEventListener('pointerdown', e => {
@@ -759,10 +773,10 @@
       const on = np.classList.contains('on');
       if (on === was) return;
       was = on;
-      if (on && radioSource()) showHint(cover); else hintOff();
+      if (on && swipeable()) showHint(cover); else hintOff();
     }).observe(np, { attributes: true, attributeFilter: ['class'] });
     cover.addEventListener('pointerenter', e => {
-      if (e.pointerType === 'mouse' && !e.buttons && !MC.swiping && np.classList.contains('on') && radioSource()) showHint(cover, true);
+      if (e.pointerType === 'mouse' && !e.buttons && !MC.swiping && np.classList.contains('on') && swipeable()) showHint(cover, true);
     });
     cover.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hintFade(); });
   }
@@ -897,19 +911,19 @@
   async function swipe(cover, dir, v) {
     MC.swiping = true;
     lift(true);
-    const id = App.state && App.state.trackId, from = dragged(cover);
+    const id = App.state && App.state.trackId, from = dragged(cover), cv = coverVote();
     const home = cover.getBoundingClientRect();              // its own place: the flip's perspective would skew this later
     try {
       if (dir > 0) {
         // 👍: back to its place and round once, the 👍 flashing as it faces front again; on a track already 👍 the swipe
         // takes it back (a grey 👍 that shrinks away)
-        const undo = !!MC.radioVote && MC.radioVote.id === id && MC.radioVote.v > 0;
+        const undo = !!cv && cv.v > 0;
         const pane = cover.parentElement, persp = pane.style.perspective;
         pane.style.perspective = '1400px';
         const flip = cover.animate([from, { translate: '0px 0px', rotate: 'y 0deg', offset: .2 }, { rotate: 'y 180deg', offset: .6 }, { translate: '0px 0px', rotate: 'y 360deg' }],
           { duration: 620, easing: 'cubic-bezier(.3,.6,.3,1)' });
         setTimeout(() => swipeBadge(home, true, undo), 380);
-        radioVote(1, !undo);
+        if (cv) cv.cast(1, !undo);
         await flip.finished.catch(() => {});
         pane.style.perspective = persp;
       } else {
@@ -929,7 +943,7 @@
         cover.style.opacity = '0';
         const fall = ghost.animate([{ ...from, opacity: 1 }, { opacity: 1, offset: .7 }, { translate: `${x + vx * ms}px ${vy * ms}px`, rotate: `${spin}deg`, opacity: 0 }],
           { duration: ms, easing: 'linear', fill: 'forwards' });
-        radioVote(-1, true);
+        if (cv) cv.cast(-1, true);
         await fall.finished.catch(() => {});
         ghost.remove();
         // until the next track's picture is in (it comes a little after the track): the old one must not come back in
@@ -1338,11 +1352,12 @@
     if (MC.voteKey === key) setVotes(t, r);
   }
 
-  async function vote(v) {
+  /** set: the vote is v even if it is already (a swipe on the cover), not taken back as a second press does. */
+  async function vote(v, set) {
     const t = voteTarget();
     if (!t) return;
     const cur = MC.vote && MC.vote.id === t.id && MC.vote.ch === t.ch ? MC.vote.v : 0;
-    const next = cur === v ? 0 : v;
+    const next = set || cur !== v ? v : 0;
     const r = await MC.api.rpc('vote', { id: t.id, channel: t.ch, vote: next }).catch(() => null);
     if (!r) { toast(T('沒有記下來，請再按一次')); return; }
     setVotes(t, r);
