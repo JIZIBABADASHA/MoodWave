@@ -690,11 +690,16 @@
   function coverVote() {
     const id = App.state && App.state.trackId;
     if (radioSource()) return MC.radioVote && MC.radioVote.id === id ? { v: MC.radioVote.v, cast: radioVote } : null;
-    const t = voteTarget();
+    const t = channelPlaying() && voteTarget();
     return t && MC.vote && MC.vote.id === t.id && MC.vote.ch === t.ch ? { v: MC.vote.v, cast: vote } : null;
   }
+  /** Whether a MoodWave channel (not Shuffle All) is what plays: the wheel keeps its last channel after another queue starts. */
+  function channelPlaying() {
+    const q = App.queue || {}, src = q.slotSource || q.source;
+    return !!(src && src.ext === 'moodchannels' && !src.radio && !src.smart && src.channel != null && src.channel !== SHUFFLE_ALL && INFO[src.channel]);
+  }
   /** Whether the cover is to show that it can be swiped (the vote may still be on its way). */
-  const swipeable = () => !!radioSource() || !!voteTarget();
+  const swipeable = () => !!radioSource() || (channelPlaying() && !!voteTarget());
 
   function coverSwipe() {
     const cover = document.getElementById('np-cover');
