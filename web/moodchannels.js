@@ -1232,6 +1232,9 @@
   }
   let fitSoon = 0;
   addEventListener('resize', () => { clearTimeout(fitSoon); fitSoon = setTimeout(fitBand, 150); });
+  // The name's own width changing while the window's does not (a theme with another typeface, the text size setting):
+  // the band follows it, or the name runs into 👍 / 👎 (or leaves a gap before them) until the next resize.
+  const nameSize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => fitBand());
 
   function rollName(i, dir) {
     const b = band(), roll = b.roll;
@@ -1241,6 +1244,7 @@
     const old = [...roll.children];
     const next = h('span', { class: 'mc-roll-item', html: logo('mc-band-logo') }, h('span', null, INFO[i].name));
     roll.append(next);
+    if (nameSize) { nameSize.disconnect(); nameSize.observe(next); }
     fitBand();
     if (!dir || !old.length || !roll.isConnected) { old.forEach(o => o.remove()); return; }
     // the old name turns away over the top (▼) or the bottom (▲) of the wheel, the next comes round from the other side
